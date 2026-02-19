@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-collab"
+version = "0.1.0"
+description = "Claude Code + OpenAI Codex CLI collaboration orchestrator with AI Research Mode"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "crimama" }]
+keywords = ["claude", "codex", "ai", "orchestrator", "research", "automation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+collab = "agent_collab.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/crimama/agent-collab"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_collab*"]
+
+[tool.setuptools.package-data]
+agent_collab = ["config.yaml"]

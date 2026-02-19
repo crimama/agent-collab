@@ -1,0 +1,89 @@
+# agent-collab configuration
+# Role-based routing rules for Claude Code <-> Codex CLI collaboration
+
+agents:
+  claude:
+    description: "Complex reasoning, architecture, analysis, code review, documentation"
+    command: ["claude", "-p"]
+    permission_mode: "bypassPermissions"
+    extra_args: []
+
+  codex:
+    description: "Code generation, tests, boilerplate, quick implementations"
+    command: ["codex", "exec"]
+    extra_args: []
+
+# Keyword-based routing (lowercase matching)
+routing:
+  claude_keywords:
+    - analyze
+    - analysis
+    - explain
+    - understand
+    - architecture
+    - design
+    - review
+    - refactor
+    - debug
+    - why
+    - how does
+    - document
+    - summarize
+    - investigate
+    - research
+    - compare
+    - evaluate
+    - plan
+    - strategy
+    - complex
+    - reasoning
+    # Korean
+    - 분석
+    - 설명
+    - 아키텍처
+    - 설계
+    - 리뷰
+    - 리팩토링
+    - 디버그
+    - 왜
+    - 어떻게
+    - 문서화
+    - 요약
+    - 복잡한
+    - 전략
+    - 계획
+
+  codex_keywords:
+    - generate
+    - create
+    - write
+    - implement
+    - add
+    - build
+    - make
+    - code
+    - test
+    - boilerplate
+    - scaffold
+    - function
+    - class
+    - api
+    - crud
+    - endpoint
+    - migration
+    - schema
+    # Korean
+    - 생성
+    - 작성
+    - 만들어
+    - 구현
+    - 추가
+    - 빌드
+    - 테스트
+    - 코드
+
+# When task is ambiguous, fall back to:
+default_agent: claude
+
+# Parallel mode: run both agents simultaneously
+parallel_timeout_seconds: 120

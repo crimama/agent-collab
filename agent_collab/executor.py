@@ -1,0 +1,253 @@
+"""
+Executor: runs a plan's tasks in dependency order,
+passing previous outputs as context to subsequent tasks.
+Supports parallel execution of independent tasks.
+"""
+from __future__ import annotations
+
+import sys
+import threading
+import time
+from typing import Dict, List, Optional
+
+from agent_collab.agents import ClaudeAgent, CodexAgent
+from agent_collab.agents.base import AgentResult
+
+# ─── Colors ───────────────────────────────────────────────────────────────────
+_USE_COLOR = sys.stdout.isatty()
+
+def _c(text: str, *styles: str) -> str:
+    if not _USE_COLOR:
+        return text
+    codes = {
+        "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
+        "cyan": "\033[96m",  "green": "\033[92m", "yellow": "\033[93m",
+        "red": "\033[91m",   "blue": "\033[94m",
+    }
+    return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
+
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+def _build_context_prefix(completed: Dict[int, AgentResult], depends_on: List[int]) -> str:
+    """Build a context string from outputs of tasks this task depends on."""
+    if not depends_on:
+        return ""
+    parts = []
+    for dep_id in depends_on:
+        res = completed.get(dep_id)
+        if res and res.output.strip():
+            out = res.output.strip()
+            # Trim very long outputs to avoid bloat
+            if len(out) > 2000:
+                out = out[:2000] + "\n... [truncated]"
+            parts.append(f"=== Output from Task {dep_id} ({res.agent_name.upper()}) ===\n{out}")
+    if not parts:
+        return ""
+    return "\n\n".join(parts) + "\n\n--- Your task ---\n"
+
+
+# ─── Topological sort ─────────────────────────────────────────────────────────
+def _topo_sort(tasks: list) -> List[List[dict]]:
+    """
+    Returns tasks grouped into waves (each wave can run in parallel).
+    Wave i runs after wave i-1 completes.
+    """
+    id_map = {t["id"]: t for t in tasks}
+    in_degree = {t["id"]: len(t.get("depends_on", [])) for t in tasks}
+    remaining = set(t["id"] for t in tasks)
+    waves = []
+
+    while remaining:
+        # Tasks with no unresolved dependencies
+        wave_ids = [tid for tid in remaining if in_degree[tid] == 0]
+        if not wave_ids:
+            # Cycle or error — just dump remaining tasks
+            wave_ids = list(remaining)
+        waves.append([id_map[tid] for tid in sorted(wave_ids)])
+        for tid in wave_ids:
+            remaining.remove(tid)
+            # Reduce in-degree of dependents
+            for t in tasks:
+                if tid in t.get("depends_on", []) and t["id"] in remaining:
+                    in_degree[t["id"]] -= 1
+
+    return waves
+
+
+# ─── Single-task runner ────────────────────────────────────────────────────────
+def _run_task_with_spinner(
+    agent,
+    task: dict,
+    context_prefix: str,
+    cwd: str,
+) -> AgentResult:
+    full_prompt = context_prefix + task["prompt"]
+    done = threading.Event()
+
+    def _spin():
+        i = 0
+        label = _c(agent.name.upper(), "cyan" if agent.name == "claude" else "green")
+        while not done.is_set():
+            sys.stderr.write(
+                f"\r  {SPINNER[i % len(SPINNER)]}  [{label}] {task['title']} ..."
+            )
+            sys.stderr.flush()
+            time.sleep(0.12)
+            i += 1
+        sys.stderr.write("\r" + " " * 70 + "\r")
+        sys.stderr.flush()
+
+    spin_t = threading.Thread(target=_spin, daemon=True)
+    if sys.stderr.isatty():
+        spin_t.start()
+
+    result = agent.run(full_prompt, cwd=cwd)
+    done.set()
+    spin_t.join(timeout=0.5)
+    return result
+
+
+def _run_task_async(
+    agent,
+    task: dict,
+    context_prefix: str,
+    cwd: str,
+    results: dict,
+) -> threading.Thread:
+    def _worker():
+        results[task["id"]] = _run_task_with_spinner(agent, task, context_prefix, cwd)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return t
+
+
+# ─── Main executor ─────────────────────────────────────────────────────────────
+def execute_plan(
+    plan: dict,
+    cwd: str = ".",
+    claude: Optional[ClaudeAgent] = None,
+    codex: Optional[CodexAgent] = None,
+    save_results: bool = True,
+) -> Dict[int, AgentResult]:
+    """Execute the plan. Returns a dict of {task_id: AgentResult}."""
+    if claude is None:
+        claude = ClaudeAgent()
+    if codex is None:
+        codex = CodexAgent()
+
+    agent_map = {"claude": claude, "codex": codex}
+    tasks = plan["tasks"]
+    waves = _topo_sort(tasks)
+    completed: Dict[int, AgentResult] = {}
+
+    total = len(tasks)
+    done_count = 0
+
+    print()
+    print(_c(f"Executing {total} tasks in {len(waves)} wave(s)...", "bold"))
+    print()
+
+    for wave_idx, wave in enumerate(waves):
+        parallel_tasks = [t for t in wave if t.get("parallel") and len(wave) > 1]
+        serial_tasks = [t for t in wave if not t.get("parallel") or len(wave) == 1]
+
+        # ── Parallel tasks in this wave ────────────────────────────────
+        if parallel_tasks:
+            print(_c(f"  ∥ Wave {wave_idx+1}: running {len(parallel_tasks)} tasks in parallel", "yellow"))
+            async_results: Dict[int, AgentResult] = {}
+            threads = []
+            for t in parallel_tasks:
+                ctx = _build_context_prefix(completed, t.get("depends_on", []))
+                agent = agent_map.get(t["agent"], claude)
+                threads.append(_run_task_async(agent, t, ctx, cwd, async_results))
+            for th in threads:
+                th.join()
+            for t in parallel_tasks:
+                res = async_results.get(t["id"])
+                if res:
+                    completed[t["id"]] = res
+                    done_count += 1
+                    _print_result(t, res, done_count, total)
+
+        # ── Serial tasks in this wave ──────────────────────────────────
+        for t in serial_tasks:
+            ctx = _build_context_prefix(completed, t.get("depends_on", []))
+            agent = agent_map.get(t["agent"], claude)
+            result = _run_task_with_spinner(agent, t, ctx, cwd)
+            completed[t["id"]] = result
+            done_count += 1
+            _print_result(t, result, done_count, total)
+
+    print()
+    print(_c(f"✓ All {total} tasks complete.", "green", "bold"))
+    print()
+
+    if save_results:
+        _save_results(plan, completed)
+
+    return completed
+
+
+def _print_result(task: dict, result: AgentResult, done: int, total: int) -> None:
+    agent = result.agent_name
+    color = "cyan" if agent == "claude" else "green"
+    header = _c(f"[{agent.upper()}]", color, "bold")
+    status = _c("✓", "green") if result.success else _c("✗", "red")
+    title = task["title"]
+    t_str = f"{result.duration_s:.1f}s"
+
+    print(f"  {status} {header}  Task {task['id']}: {title}  {_c(t_str, 'dim')}  [{done}/{total}]")
+
+    if not result.success:
+        print(_c(f"     Error: {result.error[:200]}", "red"))
+        return
+
+    # Print output with indent
+    out = result.output.strip()
+    if out:
+        separator = "─" * 60
+        print(_c(f"     {separator}", "dim"))
+        for line in out.splitlines():
+            print(f"     {line}")
+        print()
+
+
+def _save_results(plan: dict, completed: Dict[int, AgentResult]) -> None:
+    """Save results to a markdown file."""
+    import os
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"collab_results_{ts}.md"
+    goal = plan.get("goal", "unknown")
+
+    lines = [
+        f"# agent-collab Results\n",
+        f"**Goal:** {goal}\n",
+        f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
+        "",
+    ]
+    for task in plan["tasks"]:
+        tid = task["id"]
+        res = completed.get(tid)
+        if not res:
+            continue
+        lines += [
+            f"## Task {tid}: {task['title']} [{task['agent'].upper()}]",
+            "",
+            f"**Prompt:** {task['prompt']}",
+            "",
+            "**Output:**",
+            "```",
+            res.output.strip(),
+            "```",
+            "",
+        ]
+
+    with open(fname, "w") as f:
+        f.write("\n".join(lines))
+
+    print(_c(f"Results saved → {fname}", "dim"))

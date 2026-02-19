@@ -6,3 +6,4 @@ research_state.json
 research_report_*.md
 collab_results_*.md
 .env
+agent_collab.egg-info/
