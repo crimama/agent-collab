@@ -214,7 +214,7 @@ def step2_analyze(state, current_round: RoundResult, pool: ParallelPool, n_analy
                  ))
         for i in range(n_analysts)
     ]
-    outputs = pool.run(tasks, synthesize=(n_analysts > 1))
+    outputs = pool.run(tasks, criticize=(n_analysts > 1), synthesize=(n_analysts > 1))
     synthesized = next((o.output for o in reversed(outputs) if o.role == "synthesizer"), "")
     if not synthesized and outputs:
         synthesized = outputs[-1].output
@@ -239,7 +239,7 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
                  ))
         for i in range(n_implementers)
     ]
-    impl_outputs = codex_pool.run(impl_tasks, synthesize=False)
+    impl_outputs = codex_pool.run(impl_tasks, criticize=(n_implementers > 1), synthesize=False)
     all_outputs = [AgentOutput(agent="claude", role="planner", output=plan_output,
                                duration_s=plan_res.duration_s, success=plan_res.success),
                    *impl_outputs]

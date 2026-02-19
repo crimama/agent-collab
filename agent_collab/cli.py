@@ -116,6 +116,47 @@ def run_parallel(claude: ClaudeAgent, codex: CodexAgent, task: str, cwd: str) ->
     for r in results:
         print(r.display(color=_USE_COLOR))
 
+    # ── Critic pass ───────────────────────────────────────────────────────────
+    successful = [r for r in results if r.success and r.output.strip()]
+    if len(successful) >= 1:
+        combined = "\n\n".join(
+            f"=== {r.agent_name.upper()} ===\n{r.output.strip()}" for r in successful
+        )
+        critic_prompt = (
+            f"You are a rigorous critic reviewing parallel agent responses to the following task.\n\n"
+            f"TASK: {task}\n\n"
+            f"{combined}\n\n"
+            "Critically evaluate the above response(s):\n"
+            "1. **Correctness**: Any factual errors or faulty logic?\n"
+            "2. **Completeness**: What important aspects were missed?\n"
+            "3. **Contradictions**: Where agents disagree — which is right and why?\n"
+            "4. **Best Approach**: Which response (or combination) should be acted on?\n"
+            "5. **Improvements**: What specific changes would make the answer stronger?\n\n"
+            "Be specific, constructive, and concise."
+        )
+        print(_c("\n── Critic [CLAUDE] ─────────────────────────────────────────────────", "red", "bold"))
+        done2 = threading.Event()
+
+        def _spin2():
+            i = 0
+            while not done2.is_set():
+                sys.stderr.write(f"\r{SPINNER[i % len(SPINNER)]}  [{_c('CRITIC', 'red')}] reviewing...")
+                sys.stderr.flush()
+                time.sleep(0.1)
+                i += 1
+            sys.stderr.write("\r" + " " * 50 + "\r")
+            sys.stderr.flush()
+
+        spin2_t = threading.Thread(target=_spin2, daemon=True)
+        spin2_started = sys.stderr.isatty()
+        if spin2_started:
+            spin2_t.start()
+        critic_result = claude.run(critic_prompt, cwd=cwd)
+        done2.set()
+        if spin2_started:
+            spin2_t.join(timeout=0.5)
+        print(critic_result.display(color=_USE_COLOR))
+
 
 # ─── Goal-driven planning mode ────────────────────────────────────────────────
 def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent, plan_only: bool = False) -> None:

@@ -45,6 +45,8 @@ class ParallelPool:
         tasks: list[PoolTask],
         synthesize: bool = False,
         synthesis_prompt: Optional[str] = None,
+        criticize: bool = False,
+        critic_prompt: Optional[str] = None,
     ) -> list[AgentOutput]:
         if not tasks:
             return []
@@ -102,10 +104,39 @@ class ParallelPool:
                                            output=res.output, duration_s=res.duration_s,
                                            success=res.success, error=res.error))
 
+        if criticize and len(outputs) >= 1:
+            outputs = self._criticize(outputs, critic_prompt)
+
         if synthesize and len(outputs) > 1:
             outputs = self._synthesize(outputs, synthesis_prompt)
 
         return outputs
+
+    def _criticize(self, outputs: list[AgentOutput], critic_prompt: Optional[str]) -> list[AgentOutput]:
+        """Run a Claude critic that reviews all parallel outputs and identifies weaknesses."""
+        combined = "\n\n".join(
+            f"=== {o.role.upper()} ===\n{o.output}" for o in outputs if o.success
+        )
+        prompt = critic_prompt or (
+            f"You are a rigorous critic reviewing {len(outputs)} parallel agent output(s).\n\n"
+            f"{combined}\n\n"
+            "Critically evaluate these outputs:\n"
+            "1. **Logical Flaws**: Faulty reasoning or incorrect assumptions\n"
+            "2. **Missing Considerations**: Important factors that were overlooked\n"
+            "3. **Contradictions**: Where agents disagree and which position is stronger\n"
+            "4. **Overconfidence**: Claims made without sufficient evidence\n"
+            "5. **Verdict**: Which output (or combination) is most reliable, and what must be corrected\n\n"
+            "Be specific and constructive. This critique will guide subsequent steps."
+        )
+        sys.stderr.write(f"\r  {SPINNER[0]}  [{_c(self.step_label, 'red')}] critic reviewing...     \r")
+        sys.stderr.flush()
+        res = self.claude.run(prompt, cwd=self.cwd)
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+        critic_out = AgentOutput(agent="claude", role="critic",
+                                 output=res.output, duration_s=res.duration_s,
+                                 success=res.success, error=res.error)
+        return outputs + [critic_out]
 
     def _synthesize(self, outputs: list[AgentOutput], synthesis_prompt: Optional[str]) -> list[AgentOutput]:
         combined = "\n\n".join(f"=== {o.role.upper()} ===\n{o.output}" for o in outputs)

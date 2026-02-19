@@ -87,6 +87,20 @@ def print_step_result(step: StepResult) -> None:
         print(_c(f"  ╌╌ +{hidden} more lines (saved to report) ╌╌", "dim"))
     print()
 
+    # ── Critic output (if present) ────────────────────────────────────────────
+    critic_out = next((o for o in step.outputs if o.role == "critic"), None)
+    if critic_out and critic_out.output.strip():
+        print(_c("  ⚠  Critic [CLAUDE]", "red", "bold") +
+              _c(f"  {critic_out.duration_s:.1f}s", "dim"))
+        print(_c("  ┄" * 30, "dim"))
+        clines = critic_out.output.strip().splitlines()
+        for line in clines[:_PREVIEW_LINES]:
+            display = line[:120] + _c(" …", "dim") if len(line) > 120 else line
+            print(f"  {display}")
+        if len(clines) > _PREVIEW_LINES:
+            print(_c(f"  ╌╌ +{len(clines) - _PREVIEW_LINES} more lines (saved to report) ╌╌", "dim"))
+        print()
+
 
 def print_round_summary(rr: RoundResult) -> None:
     total_t = sum(s.duration_s for s in rr.steps.values())
