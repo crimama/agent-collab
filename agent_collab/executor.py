@@ -100,12 +100,14 @@ def _run_task_with_spinner(
         sys.stderr.flush()
 
     spin_t = threading.Thread(target=_spin, daemon=True)
-    if sys.stderr.isatty():
+    spin_started = sys.stderr.isatty()
+    if spin_started:
         spin_t.start()
 
     result = agent.run(full_prompt, cwd=cwd)
     done.set()
-    spin_t.join(timeout=0.5)
+    if spin_started:
+        spin_t.join(timeout=0.5)
     return result
 
 
@@ -131,6 +133,8 @@ def execute_plan(
     claude: Optional[ClaudeAgent] = None,
     codex: Optional[CodexAgent] = None,
     save_results: bool = True,
+    session=None,                        # session_store.Session | None
+    skip_task_ids: Optional[List[int]] = None,  # already-done task IDs (resume)
 ) -> Dict[int, AgentResult]:
     """Execute the plan. Returns a dict of {task_id: AgentResult}."""
     if claude is None:
@@ -138,21 +142,44 @@ def execute_plan(
     if codex is None:
         codex = CodexAgent()
 
+    skip_ids = set(skip_task_ids or [])
     agent_map = {"claude": claude, "codex": codex}
     tasks = plan["tasks"]
     waves = _topo_sort(tasks)
+
+    # Pre-populate completed from session outputs (for context injection on resume)
     completed: Dict[int, AgentResult] = {}
+    if session and skip_ids:
+        for tid in skip_ids:
+            cached = session.task_outputs.get(str(tid), "")
+            task_obj = next((t for t in tasks if t["id"] == tid), None)
+            if task_obj and cached:
+                completed[tid] = AgentResult(
+                    agent_name=task_obj.get("agent", "claude"),
+                    task=task_obj.get("prompt", ""),
+                    output=cached, error="", returncode=0, duration_s=0,
+                )
 
     total = len(tasks)
-    done_count = 0
+    remaining = total - len(skip_ids)
+    done_count = len(skip_ids)
 
     print()
-    print(_c(f"Executing {total} tasks in {len(waves)} wave(s)...", "bold"))
+    if skip_ids:
+        print(_c(f"Resuming — skipping {len(skip_ids)} completed task(s), "
+                 f"running {remaining} remaining...", "yellow", "bold"))
+    else:
+        print(_c(f"Executing {total} tasks in {len(waves)} wave(s)...", "bold"))
     print()
 
     for wave_idx, wave in enumerate(waves):
-        parallel_tasks = [t for t in wave if t.get("parallel") and len(wave) > 1]
-        serial_tasks = [t for t in wave if not t.get("parallel") or len(wave) == 1]
+        # Filter out already-done tasks
+        todo_wave = [t for t in wave if t["id"] not in skip_ids]
+        if not todo_wave:
+            continue
+
+        parallel_tasks = [t for t in todo_wave if t.get("parallel") and len(todo_wave) > 1]
+        serial_tasks   = [t for t in todo_wave if not t.get("parallel") or len(todo_wave) == 1]
 
         # ── Parallel tasks in this wave ────────────────────────────────
         if parallel_tasks:
@@ -171,6 +198,8 @@ def execute_plan(
                     completed[t["id"]] = res
                     done_count += 1
                     _print_result(t, res, done_count, total)
+                    if session:
+                        session.mark_task_done(t["id"], res.output)
 
         # ── Serial tasks in this wave ──────────────────────────────────
         for t in serial_tasks:
@@ -180,10 +209,15 @@ def execute_plan(
             completed[t["id"]] = result
             done_count += 1
             _print_result(t, result, done_count, total)
+            if session:
+                session.mark_task_done(t["id"], result.output)
 
     print()
     print(_c(f"✓ All {total} tasks complete.", "green", "bold"))
     print()
+
+    if session:
+        session.mark_completed()
 
     if save_results:
         _save_results(plan, completed)

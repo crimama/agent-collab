@@ -75,11 +75,17 @@ def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg) -> RoundR
 
 def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                          resume_path=None, plan_only=False) -> None:
+    from agent_collab.session_store import new_research_session
+
     if resume_path and Path(resume_path).exists():
         state = ResearchState.load(resume_path)
         print(_c(f"Resuming from {resume_path} (round {len(state.rounds)+1})", "yellow"))
+        collab_session = None  # already registered on first run
     else:
         state = ResearchState(goal=goal, session_dir=cwd)
+        state_path = str(Path(cwd) / "research_state.json")
+        collab_session = new_research_session(goal, cwd, total_rounds, state_path)
+        print(_c(f"Session saved → {collab_session.id}", "dim"))
 
     print_session_header(goal, total_rounds)
 
@@ -94,12 +100,21 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
         rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg)
         print_round_summary(rr)
 
+        # Update session progress
+        if collab_session:
+            collab_session.current_round = round_num
+            collab_session.research_state_path = str(state.save())
+            collab_session.save()
+
         direction = rr.conclusion.lower() if rr.conclusion else ""
         if '"direction": "done"' in direction:
             print(_c(f"\n✓ Research completed early at round {round_num}.", "green", "bold"))
             break
         if '"direction": "pivot"' in direction:
             print(_c(f"\n↻ Pivoting research direction at round {round_num}.", "yellow", "bold"))
+
+    if collab_session:
+        collab_session.mark_completed()
 
     report_path = Path(cwd) / f"research_report_{time.strftime('%Y%m%d_%H%M%S')}.md"
     report_path.write_text(state.markdown_report())

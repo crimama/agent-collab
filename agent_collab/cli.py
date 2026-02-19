@@ -159,7 +159,13 @@ def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent, plan_o
     if plan_only:
         print_plan(final_plan, verbose=True)
         return
-    execute_plan(final_plan, cwd=cwd, claude=claude, codex=codex)
+
+    # Create session for resume support
+    from agent_collab.session_store import new_planning_session
+    session = new_planning_session(goal, cwd, final_plan)
+    print(_c(f"Session saved → {session.id}", "dim"))
+
+    execute_plan(final_plan, cwd=cwd, claude=claude, codex=codex, session=session)
 
 
 # ─── Interactive REPL ─────────────────────────────────────────────────────────
@@ -202,14 +208,86 @@ def run_research(argv: list[str]) -> None:
     research_main(argv)
 
 
+# ─── Resume subcommand ────────────────────────────────────────────────────────
+def run_resume(argv: list[str], claude: ClaudeAgent, codex: CodexAgent) -> None:
+    from agent_collab.resume_ui import pick_session
+    from agent_collab.executor import execute_plan
+    from agent_collab.plan_ui import print_plan
+
+    session_id = argv[0] if argv else None
+    session = pick_session(session_id)
+    if session is None:
+        return
+
+    print()
+    print(_c(f"Resuming: {session.goal}", "bold"))
+    print(_c(f"Type: {session.type}  |  Status: {session.status}  |  {session.progress_label()}", "dim"))
+
+    if session.type == "planning":
+        if not session.plan:
+            print(_c("No plan found in session.", "red"))
+            return
+        done_ids = session.completed_task_ids
+        total = len(session.plan.get("tasks", []))
+        remaining = total - len(done_ids)
+
+        if session.status == "completed":
+            print(_c("This session is already completed.", "green"))
+            print_plan(session.plan)
+            return
+
+        if done_ids:
+            print(_c(f"\n✓ Tasks already done: {done_ids}", "green"))
+        print(_c(f"→ Running {remaining} remaining task(s)...\n", "yellow"))
+
+        execute_plan(
+            session.plan,
+            cwd=session.cwd,
+            claude=claude,
+            codex=codex,
+            session=session,
+            skip_task_ids=done_ids,
+        )
+
+    elif session.type == "research":
+        if not session.research_state_path:
+            print(_c("No research state path found in session.", "red"))
+            return
+        run_research(["--resume", session.research_state_path,
+                      "--rounds", str(session.total_rounds),
+                      "--cwd", session.cwd])
+
+
+# ─── Sessions list subcommand ─────────────────────────────────────────────────
+def run_sessions() -> None:
+    from agent_collab.session_store import list_sessions
+    from agent_collab.resume_ui import _c, _fmt_session
+
+    sessions = list_sessions()
+    if not sessions:
+        print(_c("No saved sessions found.", "dim"))
+        return
+    print()
+    print(_c(f"{'#':>4}  {'Type':10}  {'Updated':16}  {'Goal':55}  {'Progress':12}  Status", "bold"))
+    print("  " + "─" * 110)
+    for i, s in enumerate(sessions, 1):
+        print(_fmt_session(i, s))
+    print()
+    print(_c(f"  {len(sessions)} session(s) found. Run `collab resume` to select one.", "dim"))
+
+
 # ─── Main entry point ─────────────────────────────────────────────────────────
 def main(argv: list[str] | None = None) -> None:
     if argv is None:
         argv = sys.argv[1:]
 
-    # Route 'research' subcommand before argparse
+    # Route subcommands before argparse
     if argv and argv[0] == "research":
         run_research(argv[1:])
+        return
+
+    if argv and argv[0] in ("sessions", "ls"):
+        run_sessions()
         return
 
     parser = argparse.ArgumentParser(
@@ -231,6 +309,10 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config()
     claude, codex = build_agents(cfg)
     cwd = os.path.abspath(args.cwd)
+
+    if argv and argv[0] == "resume":
+        run_resume(argv[1:], claude, codex)
+        return
 
     if args.interactive or not args.goal:
         interactive_loop(claude, codex, cwd)
