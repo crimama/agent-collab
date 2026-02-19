@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from agent_collab.agents import ClaudeAgent, CodexAgent
+from agent_collab.file_ref import expand_file_refs
 from agent_collab.research.state import ResearchState, RoundResult
 from agent_collab.research.parallel_pool import ParallelPool
 from agent_collab.research.steps import (
@@ -76,6 +77,13 @@ def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg) -> RoundR
 def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                          resume_path=None, plan_only=False) -> None:
     from agent_collab.session_store import new_research_session
+
+    # Expand any /file references in the goal
+    goal, attached = expand_file_refs(goal, cwd)
+    if attached:
+        import os
+        names = [os.path.basename(p) for p in attached]
+        print(_c(f"  📎 {len(attached)} file(s) attached: {', '.join(names)}", "dim"))
 
     if resume_path and Path(resume_path).exists():
         state = ResearchState.load(resume_path)

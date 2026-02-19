@@ -25,6 +25,7 @@ import yaml
 
 from agent_collab.agents import ClaudeAgent, CodexAgent
 from agent_collab.agents.base import AgentResult
+from agent_collab.file_ref import expand_file_refs
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -40,6 +41,15 @@ def _c(text: str, *styles: str) -> str:
         "red": "\033[91m",  "magenta": "\033[95m",
     }
     return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
+
+
+def _attach_files(text: str, cwd: str) -> str:
+    """Expand /file refs in text, print attachment notice, return expanded text."""
+    expanded, attached = expand_file_refs(text, cwd)
+    if attached:
+        names = [os.path.basename(p) for p in attached]
+        print(_c(f"  📎 {len(attached)} file(s) attached: {', '.join(names)}", "dim"))
+    return expanded
 
 
 def load_config() -> dict:
@@ -59,6 +69,7 @@ def build_agents(cfg: dict) -> tuple[ClaudeAgent, CodexAgent]:
 
 # ─── Single / Parallel agent modes ───────────────────────────────────────────
 def run_single(agent, task: str, cwd: str) -> None:
+    task = _attach_files(task, cwd)
     done = threading.Event()
     label = _c(agent.name.upper(), "cyan" if agent.name == "claude" else "green", "bold")
 
@@ -88,6 +99,7 @@ def run_single(agent, task: str, cwd: str) -> None:
 
 
 def run_parallel(claude: ClaudeAgent, codex: CodexAgent, task: str, cwd: str) -> None:
+    task = _attach_files(task, cwd)
     results: list[AgentResult] = []
     threads = [claude.run_async(task, cwd=cwd, results=results),
                codex.run_async(task, cwd=cwd, results=results)]
@@ -164,7 +176,8 @@ def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent, plan_o
     from agent_collab.plan_ui import edit_plan, print_plan
     from agent_collab.executor import execute_plan
 
-    print(_c(f"\n⚙  Generating plan for: {goal}", "bold"))
+    goal = _attach_files(goal, cwd)
+    print(_c(f"\n⚙  Generating plan for: {goal[:120]}", "bold"))
     done = threading.Event()
 
     def _spin():
@@ -210,7 +223,32 @@ def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent, plan_o
 
 
 # ─── Interactive REPL ─────────────────────────────────────────────────────────
+def _setup_file_completion(cwd: str) -> None:
+    """Enable readline tab-completion for /file paths."""
+    try:
+        import readline
+        import glob as _glob
+
+        def _completer(text: str, state: int):
+            # Only complete when text looks like a file path starting with /
+            if not text.startswith("/"):
+                return None
+            matches = _glob.glob(text + "*")
+            # Append / for directories so user can keep typing
+            expanded = []
+            for m in matches:
+                expanded.append(m + "/" if os.path.isdir(m) else m)
+            return expanded[state] if state < len(expanded) else None
+
+        readline.set_completer(_completer)
+        readline.set_completer_delims(" \t\n;")
+        readline.parse_and_bind("tab: complete")
+    except (ImportError, AttributeError):
+        pass   # readline not available (Windows etc.)
+
+
 def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
+    _setup_file_completion(cwd)
     print(_c("╭───────────────────────────────────────────╮", "cyan"))
     print(_c("│  agent-collab  (Claude ↔ Codex CLI)       │", "cyan", "bold"))
     print(_c("╰───────────────────────────────────────────╯", "cyan"))
@@ -221,6 +259,8 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     print("  " + _c("/parallel <t>",  "yellow") + "  Run both simultaneously")
     print("  " + _c("/plan <goal>",   "yellow") + "  Generate plan without executing")
     print("  " + _c("/quit",          "yellow") + "  Exit")
+    print()
+    print(_c("  Tip: include /path/to/file.py in any prompt to attach its content.", "dim"))
     print()
 
     while True:
