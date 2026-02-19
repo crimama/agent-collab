@@ -4,6 +4,7 @@
 
 목표를 입력하면 자동으로 서브태스크를 분해하고 Claude와 Codex에 역할을 분배합니다.
 AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 수만큼 반복하며 모델을 점진적으로 발전시킵니다.
+세션은 자동 저장되어 중단 후에도 이어서 재개할 수 있습니다.
 
 ---
 
@@ -14,8 +15,10 @@ AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 �
 3. [목표 기반 플래닝 모드](#목표-기반-플래닝-모드)
 4. [에이전트 직접 지정 모드](#에이전트-직접-지정-모드)
 5. [AI 연구 모드](#ai-연구-모드)
-6. [옵션 레퍼런스](#옵션-레퍼런스)
-7. [파일 구조](#파일-구조)
+6. [세션 관리](#세션-관리)
+7. [출력 형식](#출력-형식)
+8. [옵션 레퍼런스](#옵션-레퍼런스)
+9. [파일 구조](#파일-구조)
 
 ---
 
@@ -54,6 +57,8 @@ pip install -e .
 | 병렬 비교 | `collab --parallel` | Claude와 Codex가 동시에 같은 태스크 수행 |
 | AI 연구 모드 | `collab research "목표"` | 6단계 연구 루프를 N 라운드 반복 |
 | 대화형 REPL | `collab -i` | 명령어 프리픽스로 실시간 전환 |
+| 세션 목록 | `collab sessions` | 저장된 세션 전체 조회 |
+| 세션 재개 | `collab resume` | 중단된 세션 선택 후 이어서 실행 |
 
 ---
 
@@ -236,7 +241,11 @@ collab research \
 중간에 중단되어도 이어서 진행할 수 있습니다.
 
 ```bash
+# research_state.json 경로를 직접 지정
 collab research --resume research_state.json
+
+# 또는 collab resume 으로 대화형 선택 (아래 세션 관리 참고)
+collab resume
 ```
 
 ### 플랜만 확인
@@ -260,6 +269,75 @@ collab research --cwd /Volume/MoLeFlow --rounds 3 \
 |------|-----------|------|
 | `research_state.json` | 매 Step 완료 시 | 전체 세션 상태 (재개 가능) |
 | `research_report_*.md` | 세션 종료 시 | 모든 라운드 결과 마크다운 리포트 |
+
+---
+
+## 세션 관리
+
+모든 `collab` 실행은 자동으로 세션으로 저장됩니다 (`~/.collab/sessions/`).
+네트워크 오류나 예기치 않은 종료 후에도 중단된 지점부터 이어서 실행할 수 있습니다.
+
+### 세션 목록 보기
+
+```bash
+collab sessions
+# 또는
+collab ls
+```
+
+출력 예시:
+
+```
+   #  Type        Updated           Goal                                                    Progress      Status
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   1  PLANNING    2024-01-15 14:23  FastAPI로 JWT 인증이 포함된 REST API를 만들어줘         3/5 tasks     in progress
+   2  RESEARCH    2024-01-15 11:08  MVTec Pixel AP 5% 향상                                Round 2/3     completed
+   3  PLANNING    2024-01-14 22:41  기존 auth.py 리팩토링                                  5/5 tasks     completed
+```
+
+### 세션 재개
+
+```bash
+# 대화형 목록에서 번호로 선택
+collab resume
+
+# 세션 ID를 직접 지정
+collab resume <session-id>
+```
+
+재개 시 동작:
+- **플래닝 세션**: 이미 완료된 태스크는 건너뛰고, 그 출력을 컨텍스트로 주입하여 나머지 태스크만 실행
+- **연구 세션**: 완료된 라운드 이후부터 재개
+
+### 세션 삭제
+
+`collab resume` 대화형 모드에서 `d <번호>` 로 삭제할 수 있습니다.
+
+```
+resume> d 2
+Delete 'MVTec Pixel AP 5% 향상'? (y/N) y
+Deleted.
+```
+
+---
+
+## 출력 형식
+
+각 태스크 결과는 터미널에서 깔끔하게 미리보기 형식으로 출력됩니다.
+
+```
+  ✓ [CLAUDE]  아키텍처 분석  4.2s  [2/5]
+  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  분석 결과 첫 번째 줄
+  분석 결과 두 번째 줄
+  ...
+  ╌╌ +42 more lines (saved to results file) ╌╌
+```
+
+- 출력이 긴 경우 처음 **18줄**만 미리보기로 표시
+- 120자를 초과하는 줄은 자동으로 잘려서 표시
+- 전체 출력은 `collab_results_*.md` 파일에 저장
+- AI 연구 모드는 `research_report_*.md` 파일에 저장
 
 ---
 
@@ -295,28 +373,54 @@ collab research [옵션] "연구 목표"
   --plan-only         라운드 구조만 출력, 실행하지 않음
 ```
 
+### `collab sessions` / `collab ls`
+
+```
+collab sessions     저장된 모든 세션 목록 출력
+collab ls           동일 (단축 별칭)
+```
+
+### `collab resume`
+
+```
+collab resume [session-id]
+
+  session-id 생략 시: 대화형 목록 표시
+  session-id 지정 시: 해당 세션 즉시 재개
+
+대화형 모드 명령어:
+  <number>    해당 세션 재개
+  d <number>  해당 세션 삭제
+  q           취소
+```
+
 ---
 
 ## 파일 구조
 
 ```
 agent-collab/
-├── collab                    # 전역 실행 스크립트 (→ /usr/local/bin/collab)
-├── orchestrator.py           # 기본 모드 진입점
-├── planner.py                # Claude를 사용한 태스크 분해
-├── plan_ui.py                # 대화형 플랜 편집기
-├── executor.py               # 태스크 실행 엔진 (의존성 순서 보장)
-├── router.py                 # 키워드 기반 에이전트 라우팅
-├── config.yaml               # 에이전트 설정 및 라우팅 규칙
-├── agents/
-│   ├── claude_agent.py       # Claude Code CLI 래퍼
-│   └── codex_agent.py        # OpenAI Codex CLI 래퍼
-└── research/
-    ├── research_mode.py      # AI 연구 모드 진입점
-    ├── steps.py              # 6단계 Step 실행 로직 및 프롬프트
-    ├── parallel_pool.py      # 병렬 에이전트 풀
-    ├── state.py              # 라운드 간 상태 관리
-    └── display.py            # 터미널 출력 및 UI
+├── pyproject.toml            # pip 패키지 설정
+├── agent_collab/
+│   ├── cli.py                # 메인 진입점 (collab 명령어)
+│   ├── planner.py            # Claude를 사용한 태스크 분해
+│   ├── plan_ui.py            # 대화형 플랜 편집기
+│   ├── executor.py           # 태스크 실행 엔진 (의존성 순서 보장)
+│   ├── session_store.py      # 세션 자동 저장 (~/.collab/sessions/)
+│   ├── resume_ui.py          # 세션 재개 대화형 UI
+│   ├── config.yaml           # 에이전트 설정 및 라우팅 규칙
+│   ├── agents/
+│   │   ├── claude_agent.py   # Claude Code CLI 래퍼
+│   │   └── codex_agent.py    # OpenAI Codex CLI 래퍼
+│   └── research/
+│       ├── research_mode.py  # AI 연구 모드 진입점
+│       ├── steps.py          # 6단계 Step 실행 로직 및 프롬프트
+│       ├── parallel_pool.py  # 병렬 에이전트 풀
+│       ├── state.py          # 라운드 간 상태 관리
+│       └── display.py        # 터미널 출력 및 UI
+└── ~/.collab/sessions/       # 자동 저장 세션 디렉토리
+    └── {session-id}/
+        └── session.json
 ```
 
 ---
