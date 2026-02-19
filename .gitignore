@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+research_state.json
+research_report_*.md
+collab_results_*.md
+.env

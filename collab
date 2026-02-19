@@ -1,0 +1,15 @@
+#!/bin/bash
+# agent-collab shell wrapper
+# Put this in your PATH: ln -s /Volume/agent-collab/collab /usr/local/bin/collab
+
+# Resolve the real path even if called via symlink
+REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)"
+
+# Route 'research' subcommand to research_mode.py
+if [ "$1" = "research" ]; then
+    shift
+    python3 "$SCRIPT_DIR/research/research_mode.py" "$@"
+else
+    python3 "$SCRIPT_DIR/orchestrator.py" "$@"
+fi
