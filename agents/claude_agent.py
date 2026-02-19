@@ -16,36 +16,24 @@ class ClaudeAgent(BaseAgent):
 
     def run(self, task: str, cwd: str = ".") -> AgentResult:
         cmd = [
-            "claude",
-            "--print",
+            "claude", "--print",
             "--permission-mode", self.permission_mode,
             "--output-format", "text",
+            "--no-session-persistence",
             *self.extra_args,
             task,
         ]
         start = time.time()
         try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-            )
-            duration = time.time() - start
+            proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
             return AgentResult(
-                agent_name=self.name,
-                task=task,
-                output=proc.stdout,
-                error=proc.stderr,
-                returncode=proc.returncode,
-                duration_s=duration,
+                agent_name=self.name, task=task,
+                output=proc.stdout, error=proc.stderr,
+                returncode=proc.returncode, duration_s=time.time() - start,
             )
         except FileNotFoundError:
             return AgentResult(
-                agent_name=self.name,
-                task=task,
-                output="",
+                agent_name=self.name, task=task, output="",
                 error="'claude' command not found. Is Claude Code installed?",
-                returncode=127,
-                duration_s=time.time() - start,
+                returncode=127, duration_s=time.time() - start,
             )

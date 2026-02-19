@@ -19,6 +19,7 @@ class ClaudeAgent(BaseAgent):
             "claude", "--print",
             "--permission-mode", self.permission_mode,
             "--output-format", "text",
+            "--no-session-persistence",
             *self.extra_args,
             task,
         ]
