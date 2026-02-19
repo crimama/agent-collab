@@ -137,16 +137,19 @@ def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent, plan_o
         sys.stderr.flush()
 
     spin_t = threading.Thread(target=_spin, daemon=True)
-    if sys.stderr.isatty():
+    spin_started = sys.stderr.isatty()
+    if spin_started:
         spin_t.start()
     try:
         plan = generate_plan(goal, cwd)
     except Exception as e:
         done.set()
+        if spin_started:
+            spin_t.join(timeout=0.5)
         print(_c(f"\nPlanning failed: {e}", "red"))
         sys.exit(1)
-    finally:
-        done.set()
+    done.set()
+    if spin_started:
         spin_t.join(timeout=0.5)
 
     final_plan = edit_plan(plan)
