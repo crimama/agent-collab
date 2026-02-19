@@ -5,6 +5,7 @@
 목표를 입력하면 자동으로 서브태스크를 분해하고 Claude와 Codex에 역할을 분배합니다.
 AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 수만큼 반복하며 모델을 점진적으로 발전시킵니다.
 세션은 자동 저장되어 중단 후에도 이어서 재개할 수 있습니다.
+프롬프트에서 `/path/to/file.py`를 직접 참조하면 파일 내용이 에이전트에게 자동으로 전달됩니다.
 
 ---
 
@@ -12,13 +13,14 @@ AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 �
 
 1. [설치](#설치)
 2. [모드 개요](#모드-개요)
-3. [목표 기반 플래닝 모드](#목표-기반-플래닝-모드)
-4. [에이전트 직접 지정 모드](#에이전트-직접-지정-모드)
-5. [AI 연구 모드](#ai-연구-모드)
-6. [세션 관리](#세션-관리)
-7. [출력 형식](#출력-형식)
-8. [옵션 레퍼런스](#옵션-레퍼런스)
-9. [파일 구조](#파일-구조)
+3. [파일 참조](#파일-참조)
+4. [목표 기반 플래닝 모드](#목표-기반-플래닝-모드)
+5. [에이전트 직접 지정 모드](#에이전트-직접-지정-모드)
+6. [AI 연구 모드](#ai-연구-모드)
+7. [세션 관리](#세션-관리)
+8. [출력 형식](#출력-형식)
+9. [옵션 레퍼런스](#옵션-레퍼런스)
+10. [파일 구조](#파일-구조)
 
 ---
 
@@ -59,6 +61,54 @@ pip install -e .
 | 대화형 REPL | `collab -i` | 명령어 프리픽스로 실시간 전환 |
 | 세션 목록 | `collab sessions` | 저장된 세션 전체 조회 |
 | 세션 재개 | `collab resume` | 중단된 세션 선택 후 이어서 실행 |
+
+---
+
+## 파일 참조
+
+프롬프트 어디서나 `/절대경로/파일.확장자` 형식으로 파일을 참조하면,
+파일 내용이 자동으로 에이전트의 컨텍스트에 첨부됩니다.
+
+### 사용법
+
+```bash
+# 단일 파일 참조
+collab --claude "Review /src/auth.py and suggest improvements"
+
+# 여러 파일 동시 참조
+collab --parallel "Compare /src/v1.py and /src/v2.py"
+
+# 플래닝 모드에서도 동작
+collab "Refactor /src/auth.py and update /tests/test_auth.py accordingly"
+
+# AI 연구 모드
+collab research "Improve /Volume/MoLeFlow/moleflow/models/lora.py performance"
+```
+
+참조한 파일이 존재하면 터미널에 첨부 알림이 표시됩니다:
+
+```
+  📎 2 file(s) attached: auth.py, test_auth.py
+```
+
+### REPL에서 Tab 자동완성
+
+`collab -i` 대화형 모드에서는 `/path` 입력 후 `Tab` 키로 경로를 자동완성할 수 있습니다.
+
+```
+▶ Fix the bug in /src/au[Tab]
+           자동완성 → /src/auth.py
+```
+
+### 동작 방식
+
+| 항목 | 내용 |
+|------|------|
+| 패턴 | `/path/to/file.ext` (확장자 필수) |
+| 파일 크기 제한 | 파일당 최대 32KB |
+| 첨부 위치 | 원본 프롬프트 뒤에 fenced code block으로 삽입 |
+| 지원 언어 | Python, JS/TS, Bash, Markdown, JSON, YAML, Rust, Go 등 20+ |
+| 미존재 경로 | 무시됨 (오류 없음) |
 
 ---
 
@@ -406,6 +456,7 @@ agent-collab/
 │   ├── planner.py            # Claude를 사용한 태스크 분해
 │   ├── plan_ui.py            # 대화형 플랜 편집기
 │   ├── executor.py           # 태스크 실행 엔진 (의존성 순서 보장)
+│   ├── file_ref.py           # /path/to/file 참조 확장 유틸리티
 │   ├── session_store.py      # 세션 자동 저장 (~/.collab/sessions/)
 │   ├── resume_ui.py          # 세션 재개 대화형 UI
 │   ├── config.yaml           # 에이전트 설정 및 라우팅 규칙
