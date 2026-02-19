@@ -58,34 +58,51 @@ def print_step_start(step_id: int, step_name: str, n_agents: int) -> None:
           _c(f"  [{agents}{n_str}]", "dim"))
 
 
+_PREVIEW_LINES = 20
+
+
 def print_step_result(step: StepResult) -> None:
     out = step.primary_output().strip()
+    _, _, _, _, color = STEP_META[step.step_id - 1]
+    agents_used = ", ".join(sorted({o.agent for o in step.outputs}))
+    t_str = _c(f"{step.duration_s:.1f}s", "dim")
+
+    # ── Step completion header ────────────────────────────────────────────────
+    print(_c(f"\n  ✓  {step.step_name}", color, "bold") +
+          f"  {t_str}  " + _c(f"[{agents_used}]", "dim"))
+
     if not out:
         return
-    _, _, _, _, color = STEP_META[step.step_id - 1]
-    separator = _c("─" * 60, "dim")
-    print(separator)
+
     lines = out.splitlines()
-    for line in lines[:60]:
-        print("  " + line)
-    if len(lines) > 60:
-        print(_c(f"  ... [{len(lines) - 60} more lines]", "dim"))
-    agents_used = {o.agent for o in step.outputs}
-    print(_c(f"\n  ✓ {step.step_name} complete  ({step.duration_s:.1f}s)", color) +
-          _c(f"  [{', '.join(sorted(agents_used))}]", "dim"))
+    preview = lines[:_PREVIEW_LINES]
+    hidden  = len(lines) - _PREVIEW_LINES
+
+    # ── Content preview ───────────────────────────────────────────────────────
+    print(_c("  ┄" * 30, "dim"))
+    for line in preview:
+        display = line[:120] + _c(" …", "dim") if len(line) > 120 else line
+        print(f"  {display}")
+    if hidden > 0:
+        print(_c(f"  ╌╌ +{hidden} more lines (saved to report) ╌╌", "dim"))
     print()
 
 
 def print_round_summary(rr: RoundResult) -> None:
-    print(_c("\n  ╔══ ROUND SUMMARY ══╗", "magenta", "bold"))
-    if rr.best_metric:
-        print(_c(f"  Best Metric:  {rr.best_metric}", "green", "bold"))
-    if rr.next_hypotheses:
-        print(_c("  Next Hypotheses:", "yellow"))
-        for h in rr.next_hypotheses[:4]:
-            print(f"    • {h}")
     total_t = sum(s.duration_s for s in rr.steps.values())
-    print(_c(f"  Total time: {total_t:.0f}s", "dim"))
+    print()
+    print(_c("  ━" * 35, "magenta"))
+    print(_c(f"  ROUND {rr.round_num} COMPLETE", "magenta", "bold") +
+          _c(f"  ({total_t:.0f}s total)", "dim"))
+    if rr.best_metric:
+        print(_c(f"  ★ Best:  {rr.best_metric}", "green", "bold"))
+    if rr.next_hypotheses:
+        print(_c("  → Next round hypotheses:", "yellow"))
+        for h in rr.next_hypotheses[:4]:
+            # Trim long hypotheses
+            h_display = h[:100] + "…" if len(h) > 100 else h
+            print(f"    • {h_display}")
+    print(_c("  ━" * 35, "magenta"))
     print()
 
 

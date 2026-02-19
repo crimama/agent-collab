@@ -225,28 +225,42 @@ def execute_plan(
     return completed
 
 
-def _print_result(task: dict, result: AgentResult, done: int, total: int) -> None:
-    agent = result.agent_name
-    color = "cyan" if agent == "claude" else "green"
-    header = _c(f"[{agent.upper()}]", color, "bold")
-    status = _c("✓", "green") if result.success else _c("✗", "red")
-    title = task["title"]
-    t_str = f"{result.duration_s:.1f}s"
+_PREVIEW_LINES = 18   # max lines shown inline; rest collapsed
 
-    print(f"  {status} {header}  Task {task['id']}: {title}  {_c(t_str, 'dim')}  [{done}/{total}]")
+
+def _print_result(task: dict, result: AgentResult, done: int, total: int) -> None:
+    agent  = result.agent_name
+    color  = "cyan" if agent == "claude" else "green"
+    status = _c("✓", "green") if result.success else _c("✗", "red")
+    badge  = _c(f"[{agent.upper()}]", color, "bold")
+    prog   = _c(f"[{done}/{total}]", "dim")
+    t_str  = _c(f"{result.duration_s:.1f}s", "dim")
+    title  = task["title"]
+
+    # ── Header line ──────────────────────────────────────────────────────────
+    print(f"\n  {status} {badge}  {title}  {t_str}  {prog}")
 
     if not result.success:
-        print(_c(f"     Error: {result.error[:200]}", "red"))
+        print(_c(f"  ✖ {result.error[:200]}", "red"))
         return
 
-    # Print output with indent
     out = result.output.strip()
-    if out:
-        separator = "─" * 60
-        print(_c(f"     {separator}", "dim"))
-        for line in out.splitlines():
-            print(f"     {line}")
-        print()
+    if not out:
+        return
+
+    lines = out.splitlines()
+    preview = lines[:_PREVIEW_LINES]
+    hidden  = len(lines) - _PREVIEW_LINES
+
+    # ── Content box ──────────────────────────────────────────────────────────
+    print(_c("  ┄" * 30, "dim"))
+    for line in preview:
+        # Trim very long lines
+        display = line[:120] + _c(" …", "dim") if len(line) > 120 else line
+        print(f"  {display}")
+    if hidden > 0:
+        print(_c(f"  ╌╌ +{hidden} more lines (saved to results file) ╌╌", "dim"))
+    print()
 
 
 def _save_results(plan: dict, completed: Dict[int, AgentResult]) -> None:
