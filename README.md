@@ -66,26 +66,30 @@ pip install -e .
 
 ## 파일 참조
 
-프롬프트 어디서나 `/절대경로/파일.확장자` 형식으로 파일을 참조하면,
-파일 내용이 자동으로 에이전트의 컨텍스트에 첨부됩니다.
+프롬프트 어디서나 파일을 참조하면 내용이 에이전트 컨텍스트에 자동 첨부됩니다.
 
-### 사용법
+### 두 가지 참조 방식
+
+| 문법 | 설명 | 예시 |
+|------|------|------|
+| `/절대경로/파일.py` | 절대/상대 경로로 직접 지정 | `/src/auth.py` |
+| `@파일명.py` | cwd에서 파일명으로 재귀 검색 | `@auth.py` |
 
 ```bash
-# 단일 파일 참조
+# 절대 경로 참조
 collab --claude "Review /src/auth.py and suggest improvements"
+
+# @ 단축 참조 (cwd에서 auth.py를 자동으로 찾음)
+collab --claude "Review @auth.py and fix the JWT bug"
 
 # 여러 파일 동시 참조
 collab --parallel "Compare /src/v1.py and /src/v2.py"
 
-# 플래닝 모드에서도 동작
-collab "Refactor /src/auth.py and update /tests/test_auth.py accordingly"
-
 # AI 연구 모드
-collab research "Improve /Volume/MoLeFlow/moleflow/models/lora.py performance"
+collab research "Improve @lora.py performance"
 ```
 
-참조한 파일이 존재하면 터미널에 첨부 알림이 표시됩니다:
+첨부 시 알림 표시:
 
 ```
   📎 2 file(s) attached: auth.py, test_auth.py
@@ -93,21 +97,22 @@ collab research "Improve /Volume/MoLeFlow/moleflow/models/lora.py performance"
 
 ### REPL에서 Tab 자동완성
 
-`collab -i` 대화형 모드에서는 `/path` 입력 후 `Tab` 키로 경로를 자동완성할 수 있습니다.
+`collab -i` 대화형 모드에서 `/path` 및 `@name` 입력 후 `Tab`으로 자동완성합니다.
 
 ```
-▶ Fix the bug in /src/au[Tab]
-           자동완성 → /src/auth.py
+▶ Fix /src/au[Tab]  →  /src/auth.py
+▶ Review @lo[Tab]   →  @lora.py
 ```
 
 ### 동작 방식
 
 | 항목 | 내용 |
 |------|------|
-| 패턴 | `/path/to/file.ext` (확장자 필수) |
+| `/path` 패턴 | 절대/상대 경로, 확장자 필수 |
+| `@name` 패턴 | cwd 재귀 검색, 이름 또는 부분 경로 |
 | 파일 크기 제한 | 파일당 최대 32KB |
-| 첨부 위치 | 원본 프롬프트 뒤에 fenced code block으로 삽입 |
-| 지원 언어 | Python, JS/TS, Bash, Markdown, JSON, YAML, Rust, Go 등 20+ |
+| 첨부 위치 | 원본 프롬프트 뒤 fenced code block |
+| 지원 언어 | Python, JS/TS, Bash, Rust, Go 등 20+ |
 | 미존재 경로 | 무시됨 (오류 없음) |
 
 ---
@@ -218,16 +223,46 @@ collab --parallel "이 알고리즘의 시간복잡도를 줄이는 방법"
 collab -i
 ```
 
-REPL 내에서 사용할 수 있는 프리픽스:
+REPL은 대화 히스토리를 기억하며, 이전 대화 컨텍스트를 자동으로 다음 요청에 주입합니다.
+
+#### 에이전트 명령어
 
 | 프리픽스 | 설명 |
 |----------|------|
 | (없음) | 목표 → 플랜 → 실행 |
-| `/claude <task>` | Claude Code 직접 호출 |
-| `/codex <task>` | Codex CLI 직접 호출 |
-| `/parallel <task>` | 두 에이전트 동시 실행 |
+| `/claude <task>` | Claude Code 직접 호출 (히스토리 주입) |
+| `/codex <task>` | Codex CLI 직접 호출 (히스토리 주입) |
+| `/parallel <task>` | 두 에이전트 동시 실행 + 비판자 |
 | `/plan <goal>` | 플랜만 생성 (실행 X) |
+
+#### 세션 관리 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `/help` | 전체 명령어 도움말 |
+| `/clear` | 화면 지우기 + 대화 히스토리 초기화 |
+| `/history` | 최근 대화 기록 보기 |
+| `/status` (`/s`) | 세션 상태 (cwd, 히스토리 수, 토큰 추정치) |
+| `/compact` | 출력 압축 모드 토글 (25줄 미리보기) |
+| `/copy` | 마지막 에이전트 출력을 클립보드에 복사 |
 | `/quit` | 종료 |
+
+#### 기타 UX 기능
+
+- **토큰 카운터**: 프롬프트에 `[~Nt]`로 현재 컨텍스트 토큰 추정치 표시
+- **멀티라인 입력**: `"""`로 시작해 여러 줄 입력, `"""`로 종료
+- **신택스 하이라이팅**: 에이전트 출력의 코드 블록 자동 컬러링
+- **Tab 자동완성**: `/path`와 `@filename` 경로 자동완성
+
+```
+▶ /claude """
+  (multi-line — end with """ on a blank line)
+  … Fix the auth bug in @auth.py
+  … Make sure all tests in @test_auth.py pass
+  … """
+  📎 2 file(s) attached: auth.py, test_auth.py
+  [~142t] ▶
+```
 
 ---
 
