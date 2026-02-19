@@ -21,12 +21,27 @@ AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 �
 
 ## 설치
 
-```bash
-pip install pyyaml
+### GitHub에서 직접 설치 (권장)
 
-# 전역 명령어로 등록
-ln -s /Volume/agent-collab/collab /usr/local/bin/collab
+```bash
+pip install git+https://github.com/crimama/agent-collab.git
 ```
+
+### 로컬 클론 후 설치
+
+```bash
+git clone https://github.com/crimama/agent-collab.git
+cd agent-collab
+pip install -e .
+```
+
+설치 후 `collab` 명령어가 전역으로 등록됩니다.
+
+### 요구사항
+
+- Python 3.9+
+- [Claude Code CLI](https://claude.ai/code) 설치 및 로그인
+- [OpenAI Codex CLI](https://github.com/openai/codex) 설치 (`npm install -g @openai/codex`)
 
 ---
 
