@@ -1,6 +1,8 @@
 """6-step research round execution."""
 from __future__ import annotations
 
+import sys
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -9,6 +11,56 @@ from agent_collab.research.parallel_pool import ParallelPool, PoolTask
 
 if TYPE_CHECKING:
     from agent_collab.agents import ClaudeAgent, CodexAgent
+
+# Spinner
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_USE_COLOR = sys.stderr.isatty()
+
+
+def _c(text: str, *styles: str) -> str:
+    if not _USE_COLOR:
+        return text
+    codes = {
+        "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
+        "cyan": "\033[96m", "green": "\033[92m", "yellow": "\033[93m",
+        "red": "\033[91m",
+    }
+    return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
+
+
+def _run_with_spinner(agent, prompt: str, cwd: str, label: str):
+    """Run a single agent with spinner display."""
+    done = threading.Event()
+    result = None
+
+    def _worker():
+        nonlocal result
+        result = agent.run(prompt, cwd=cwd)
+        done.set()
+
+    def _spin():
+        i = 0
+        while not done.is_set():
+            sys.stderr.write(f"\r  {SPINNER[i % len(SPINNER)]}  {label}...")
+            sys.stderr.flush()
+            time.sleep(0.12)
+            i += 1
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+
+    worker = threading.Thread(target=_worker, daemon=True)
+    spinner = threading.Thread(target=_spin, daemon=True)
+
+    worker.start()
+    if sys.stderr.isatty():
+        spinner.start()
+
+    worker.join()
+    done.set()
+    if sys.stderr.isatty():
+        spinner.join(timeout=0.5)
+
+    return result
 
 _S1_UNDERSTAND = """\
 You are an AI research scientist starting a new research round.
@@ -205,10 +257,15 @@ End with a JSON block:
 
 def step1_understand(state, current_round: RoundResult, claude, cwd: str) -> StepResult:
     t0 = time.time()
-    res = claude.run(_S1_UNDERSTAND.format(
-        goal=state.goal, round_context=state.round_context(),
-        round_num=current_round.round_num,
-    ), cwd=cwd)
+    res = _run_with_spinner(
+        claude,
+        _S1_UNDERSTAND.format(
+            goal=state.goal, round_context=state.round_context(),
+            round_num=current_round.round_num,
+        ),
+        cwd,
+        _c("[CLAUDE]", "cyan", "bold") + _c(" Understanding goal", "dim")
+    )
     output = AgentOutput(agent="claude", role="understander",
                          output=res.output, duration_s=res.duration_s,
                          success=res.success, error=res.error)
@@ -242,9 +299,14 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
                       n_implementers: int = 2, cwd: str = ".") -> StepResult:
     t0 = time.time()
     step2_out = current_round.steps.get("analyze", StepResult(2, "")).primary_output()
-    plan_res = claude.run(_S3_PLAN.format(
-        goal=state.goal, round_num=current_round.round_num, step2_output=step2_out,
-    ), cwd=cwd)
+    plan_res = _run_with_spinner(
+        claude,
+        _S3_PLAN.format(
+            goal=state.goal, round_num=current_round.round_num, step2_output=step2_out,
+        ),
+        cwd,
+        _c("[CLAUDE]", "cyan", "bold") + _c(" Designing methodology", "dim")
+    )
     plan_output = plan_res.output
     impl_tasks = [
         PoolTask(role=f"implementer-{i+1}", agent="codex",
@@ -376,10 +438,15 @@ def step5_results(state, current_round: RoundResult, claude, cwd: str = ".") -> 
     step4_out = current_round.steps.get("experiment",  StepResult(4, "")).primary_output()
     best_metrics = "\n".join(f"Round {r.round_num}: {r.best_metric}"
                              for r in state.rounds if r.best_metric) or "No previous metrics."
-    res = claude.run(_S5_RESULTS.format(
-        goal=state.goal, round_num=current_round.round_num,
-        step3_output=step3_out, step4_output=step4_out, best_metrics=best_metrics,
-    ), cwd=cwd)
+    res = _run_with_spinner(
+        claude,
+        _S5_RESULTS.format(
+            goal=state.goal, round_num=current_round.round_num,
+            step3_output=step3_out, step4_output=step4_out, best_metrics=best_metrics,
+        ),
+        cwd,
+        _c("[CLAUDE]", "cyan", "bold") + _c(" Analyzing results", "dim")
+    )
     output = AgentOutput(agent="claude", role="result-analyst",
                          output=res.output, duration_s=res.duration_s, success=res.success)
     return StepResult(step_id=5, step_name="Result Analysis",
@@ -392,11 +459,16 @@ def step6_conclusion(state, current_round: RoundResult, total_rounds: int,
     import json, re
     t0 = time.time()
     full_ctx = state.step_context(current_round, up_to_step=6)
-    res = claude.run(_S6_CONCLUSION.format(
-        goal=state.goal, round_num=current_round.round_num,
-        total_rounds=total_rounds, full_round_context=full_ctx,
-        next_round=current_round.round_num + 1,
-    ), cwd=cwd)
+    res = _run_with_spinner(
+        claude,
+        _S6_CONCLUSION.format(
+            goal=state.goal, round_num=current_round.round_num,
+            total_rounds=total_rounds, full_round_context=full_ctx,
+            next_round=current_round.round_num + 1,
+        ),
+        cwd,
+        _c("[CLAUDE]", "cyan", "bold") + _c(" Writing conclusion", "dim")
+    )
     match = re.search(r'```json\s*(\{.*?\})\s*```', res.output, re.DOTALL)
     if match:
         try:
