@@ -60,11 +60,37 @@ DEFAULT_PATTERNS = CompletionPattern(
         r"✓.*complete",
     ],
     failure_patterns=[
+        # Python errors
         r"(?i)error:",
         r"(?i)exception:",
-        r"(?i)failed",
-        r"(?i)traceback",
+        r"(?i)traceback\s*\(most recent call last\)",
+        r"(?i)(?:runtime|value|type|attribute|key|index|name)error",
+        r"(?i)assertion\s*error",
+
+        # CUDA/GPU errors
         r"CUDA\s+out\s+of\s+memory",
+        r"(?i)cuda\s+error",
+        r"(?i)gpu\s+out\s+of\s+memory",
+
+        # File/IO errors
+        r"(?i)file\s+not\s+found",
+        r"(?i)no\s+such\s+file\s+or\s+directory",
+        r"(?i)permission\s+denied",
+
+        # Import/Module errors
+        r"(?i)modulenotfounderror",
+        r"(?i)importerror",
+        r"(?i)no\s+module\s+named",
+
+        # General failures
+        r"(?i)failed",
+        r"(?i)fatal",
+        r"(?i)aborted",
+        r"(?i)killed",
+
+        # Process exit
+        r"(?i)process\s+(?:exited|terminated|killed)",
+        r"(?i)exit\s+code\s*:\s*[1-9]",
     ],
     timeout_seconds=24 * 3600,  # 24 hours default
 )
@@ -191,6 +217,14 @@ class BackgroundMonitor:
                     self.progress.error_message = f"Timeout after {elapsed:.0f}s"
                     break
 
+            # Check for stalled process (no log updates for 10 minutes after startup)
+            elapsed = time.time() - self.progress.started_at
+            time_since_update = time.time() - self.progress.last_update
+            if elapsed > 120 and time_since_update > 600:  # After 2min startup, no update for 10min
+                self.progress.status = "failed"
+                self.progress.error_message = f"Process appears stalled (no log updates for {time_since_update:.0f}s)"
+                break
+
             # Parse logs for progress
             self._parse_log_progress()
 
@@ -211,7 +245,16 @@ class BackgroundMonitor:
                     if log_path.exists():
                         print_log_summary(log_path)
 
-            time.sleep(self.poll_interval)
+            # Adaptive polling: check more frequently at the start (when errors are most likely)
+            elapsed = time.time() - self.progress.started_at
+            if elapsed < 60:  # First minute: check every 2 seconds
+                poll_time = 2
+            elif elapsed < 300:  # First 5 minutes: check every 5 seconds
+                poll_time = 5
+            else:  # After 5 minutes: use configured interval
+                poll_time = self.poll_interval
+
+            time.sleep(poll_time)
 
     def _parse_log_progress(self) -> None:
         """Parse log file for progress indicators (epoch, metrics, etc.)."""
@@ -294,12 +337,8 @@ class BackgroundMonitor:
             for pattern in self.patterns.failure_patterns:
                 if re.search(pattern, content, re.IGNORECASE):
                     self.progress.status = "failed"
-                    # Extract error context
-                    match = re.search(pattern, content, re.IGNORECASE)
-                    if match:
-                        start = max(0, match.start() - 100)
-                        end = min(len(content), match.end() + 100)
-                        self.progress.error_message = content[start:end]
+                    # Extract detailed error context
+                    self.progress.error_message = self._extract_error_details(content, pattern)
                     return True
 
             # Check success patterns
@@ -312,6 +351,30 @@ class BackgroundMonitor:
             pass
 
         return False
+
+    def _extract_error_details(self, log_content: str, error_pattern: str) -> str:
+        """Extract comprehensive error details from log content."""
+        lines = log_content.split('\n')
+        error_lines = []
+
+        # Find the error location
+        for i, line in enumerate(lines):
+            if re.search(error_pattern, line, re.IGNORECASE):
+                # Include context: 5 lines before, error line, and up to 20 lines after (for traceback)
+                start_idx = max(0, i - 5)
+                end_idx = min(len(lines), i + 21)
+                error_lines = lines[start_idx:end_idx]
+                break
+
+        if not error_lines:
+            # Fallback: just return the matched portion
+            match = re.search(error_pattern, log_content, re.IGNORECASE)
+            if match:
+                start = max(0, match.start() - 200)
+                end = min(len(log_content), match.end() + 200)
+                return log_content[start:end]
+
+        return '\n'.join(error_lines)
 
     def _show_live_progress(self) -> None:
         """Show live progress with spinner until completion."""
@@ -370,6 +433,21 @@ class BackgroundMonitor:
                 print(_c(f"     Error: {error_preview}", "red", "dim"))
 
         print()
+
+
+def get_log_content(log_path: Path, max_lines: int = 500) -> str:
+    """Get recent log content for error analysis."""
+    if not log_path.exists():
+        return ""
+
+    try:
+        with open(log_path, "r") as f:
+            lines = f.readlines()
+            # Return last max_lines
+            relevant_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+            return "".join(relevant_lines)
+    except Exception:
+        return ""
 
 
 def _format_duration(seconds: float) -> str:

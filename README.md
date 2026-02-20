@@ -778,8 +778,44 @@ Step 4 (Experiment Execution)에서 **몇 시간 ~ 며칠이 소요되는 딥러
 1. **자동 감지**: Codex 에이전트가 `BACKGROUND_TASK: true` 태그를 출력하면 백그라운드 실행으로 전환
 2. **백그라운드 실행**: 학습 스크립트를 백그라운드 프로세스로 시작
 3. **실시간 모니터링**: 로그 파일을 주기적으로 파싱하여 진행상황 표시
-4. **완료 감지**: 특정 패턴 또는 파일 생성으로 완료 자동 감지
-5. **자동 재개**: 완료 후 Step 5 (Result Analysis)로 자동 진행
+4. **에러 감지 & 자동 복구** ⚡NEW: 에러 발생 시 자동으로 수정 후 재시도 (최대 3회)
+5. **완료 감지**: 특정 패턴 또는 파일 생성으로 완료 자동 감지
+6. **자동 재개**: 완료 후 Step 5 (Result Analysis)로 자동 진행
+
+#### 🔧 자동 에러 복구 시스템
+
+실험 중 에러가 발생하면 **자동으로 감지하고 수정**합니다:
+
+**감지되는 에러 유형:**
+- Python 에러 (TypeError, ValueError, AttributeError 등)
+- CUDA/GPU 메모리 부족
+- 파일 없음/권한 에러
+- Import/Module 에러
+- 프로세스 충돌 또는 강제 종료
+- 로그 업데이트 중단 (10분 이상 정지 시)
+
+**자동 복구 프로세스:**
+1. 로그에서 에러를 실시간 감지 (첫 5분간 2초마다 체크)
+2. 에러 로그 전체를 Codex에게 전달
+3. Codex가 에러 원인 분석 및 수정된 코드 생성
+4. 수정된 코드로 자동 재실행
+5. 최대 3회까지 재시도
+
+**실행 예시:**
+```
+  🎯 Detected long-running experiment: exp-V65_baseline
+  🚀 Started background task
+
+  ⚠️  Experiment failed (attempt 1/3)
+  📋 Error: CUDA out of memory...
+  🔧 Attempting automatic fix...
+  🤖 Asking Codex to analyze and fix the error...
+  ✓ Generated fix. Retrying experiment...
+
+  🚀 Started background task (attempt 2)
+  ⠋ Epoch 45/60 (75%) | Loss=0.0234 | AUC=98.47%
+  ✅ Task completed (succeeded after 1 retry)
+```
 
 #### Codex 에이전트 출력 형식
 

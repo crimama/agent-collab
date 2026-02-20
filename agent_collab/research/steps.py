@@ -383,9 +383,10 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
 
 
 def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool,
-                     n_experiments: int = 2, cwd: str = ".") -> StepResult:
+                     n_experiments: int = 2, cwd: str = ".", max_retries: int = 3) -> StepResult:
     import json, re, sys
-    from agent_collab.research.monitor import run_background_task, parse_experiment_command, _c
+    from pathlib import Path
+    from agent_collab.research.monitor import run_background_task, parse_experiment_command, get_log_content, _c
 
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
@@ -419,27 +420,99 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
     for output in outputs:
         bg_info = parse_experiment_command(output.output)
         if bg_info:
-            # This is a background task
+            # This is a background task - try with automatic error recovery
             print(_c(f"\n  🎯 Detected long-running experiment: {output.role}", "yellow", "bold"))
             if 'estimated_time' in bg_info:
                 print(_c(f"  ⏱️  Estimated time: {bg_info['estimated_time']}", "dim"))
             print()
 
-            # Run in background and wait for completion
             task_id = output.role
-            progress = run_background_task(
-                task_id=task_id,
-                command=bg_info['command'],
-                cwd=cwd,
-                log_file=bg_info.get('log_file'),
-                patterns=bg_info.get('patterns'),
-                wait=True,
-            )
+            current_setup = output.output
+            retry_count = 0
+            progress = None
 
-            # Create result output
-            if progress.status == "completed":
+            # Retry loop with automatic error recovery
+            while retry_count <= max_retries:
+                # Run experiment
+                progress = run_background_task(
+                    task_id=f"{task_id}_attempt{retry_count+1}" if retry_count > 0 else task_id,
+                    command=bg_info['command'],
+                    cwd=cwd,
+                    log_file=bg_info.get('log_file'),
+                    patterns=bg_info.get('patterns'),
+                    wait=True,
+                )
+
+                if progress.status == "completed":
+                    # Success! Break out of retry loop
+                    break
+
+                # Failed - attempt recovery
+                retry_count += 1
+                if retry_count > max_retries:
+                    print(_c(f"\n  ❌ Experiment failed after {max_retries} retry attempts", "red", "bold"))
+                    break
+
+                print(_c(f"\n  ⚠️  Experiment failed (attempt {retry_count}/{max_retries})", "yellow", "bold"))
+                print(_c(f"  📋 Error: {progress.error_message[:200]}...", "red"))
+                print(_c(f"  🔧 Attempting automatic fix...", "cyan"))
+
+                # Get full log for error analysis
+                log_content = ""
+                if bg_info.get('log_file'):
+                    log_path = Path(cwd) / bg_info['log_file']
+                    log_content = get_log_content(log_path, max_lines=200)
+
+                # Ask Codex to fix the error
+                fix_prompt = f"""The experiment failed with the following error. Analyze the error and provide a fixed implementation.
+
+ORIGINAL TASK:
+{step3_out}
+
+EXPERIMENT NAME: {bg_info.get('experiment_name', task_id)}
+
+PREVIOUS IMPLEMENTATION:
+{current_setup}
+
+ERROR LOG:
+{log_content if log_content else progress.error_message}
+
+INSTRUCTIONS:
+1. Analyze the root cause of the error
+2. Provide a COMPLETE fixed implementation
+3. Use the same output format (BACKGROUND_TASK: true, COMMAND:, LOG_FILE:, etc.)
+4. Make sure to handle edge cases that caused the failure
+5. If it's a code error, provide the corrected code files
+
+Respond with the fixed experiment setup:"""
+
+                print(_c(f"  🤖 Asking Codex to analyze and fix the error...", "cyan"))
+
+                # Get fixed implementation from Codex
+                from agent_collab.agents import CodexAgent
+                fix_result = codex_pool.agents[0].run(fix_prompt, cwd=cwd)
+
+                if not fix_result.success:
+                    print(_c(f"  ❌ Could not generate fix. Stopping retry.", "red"))
+                    break
+
+                # Parse the new setup
+                new_bg_info = parse_experiment_command(fix_result.output)
+                if not new_bg_info:
+                    print(_c(f"  ❌ Fix did not produce valid experiment setup. Stopping retry.", "red"))
+                    break
+
+                print(_c(f"  ✓ Generated fix. Retrying experiment...", "green"))
+
+                # Update for next iteration
+                bg_info = new_bg_info
+                current_setup = fix_result.output
+
+            # Create final result output
+            if progress and progress.status == "completed":
                 result_text = f"""EXPERIMENT: {task_id}
 STATUS: SUCCESS (Background task completed)
+ATTEMPTS: {retry_count + 1}
 DURATION: {progress.last_update - progress.started_at:.0f}s
 
 METRICS:"""
@@ -453,8 +526,10 @@ METRICS:"""
                 if progress.current_epoch and progress.total_epochs:
                     result_text += f"\n\nCOMPLETED: {progress.current_epoch}/{progress.total_epochs} epochs"
 
-                # Append original setup info
-                result_text += f"\n\n--- Original Setup ---\n{output.output}"
+                if retry_count > 0:
+                    result_text += f"\n\n⚠️  NOTE: Succeeded after {retry_count} auto-fix attempt(s)"
+
+                result_text += f"\n\n--- Final Setup ---\n{current_setup}"
 
                 final_outputs.append(AgentOutput(
                     agent=output.agent, role=output.role,
@@ -463,19 +538,19 @@ METRICS:"""
                     success=True,
                 ))
             else:
-                # Failed
+                # Failed even after retries
                 error_text = f"""EXPERIMENT: {task_id}
-STATUS: FAILED
-ERROR: {progress.error_message or 'Process failed'}
-EXIT_CODE: {progress.exit_code}
+STATUS: FAILED (after {retry_count + 1} attempts)
+ERROR: {progress.error_message if progress else 'Unknown error'}
+EXIT_CODE: {progress.exit_code if progress else 'N/A'}
 
---- Original Setup ---
-{output.output}"""
+--- Last Setup Attempted ---
+{current_setup}"""
                 final_outputs.append(AgentOutput(
                     agent=output.agent, role=output.role,
                     output=error_text,
-                    duration_s=progress.last_update - progress.started_at,
-                    success=False, error=progress.error_message,
+                    duration_s=progress.last_update - progress.started_at if progress else 0,
+                    success=False, error=progress.error_message if progress else "Failed",
                 ))
         else:
             # Regular short experiment, use output as-is
