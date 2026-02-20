@@ -33,6 +33,32 @@ def agent_badge(agent: str) -> str:
     return _c(label, color, "bold")
 
 
+def _multiline_input(prompt_text: str = "") -> str:
+    """
+    Multi-line input that supports pasting.
+    Enter multiple lines, finish with an empty line.
+    Type 'cancel' to abort.
+    """
+    if prompt_text:
+        print(_c(prompt_text, "yellow"))
+    print(_c("  (Enter multiple lines, empty line to finish, 'cancel' to abort)", "dim"))
+
+    lines = []
+    try:
+        while True:
+            line = input(_c("  + ", "yellow")).rstrip()
+            if line.lower() == "cancel":
+                return ""
+            if line == "" and lines:  # Empty line after content = done
+                break
+            if line:  # Only add non-empty lines
+                lines.append(line)
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+    return "\n".join(lines).strip()
+
+
 # ─── Plan rendering ────────────────────────────────────────────────────────────
 def print_plan(plan: dict, verbose: bool = False) -> None:
     tasks = plan["tasks"]
@@ -131,17 +157,15 @@ def edit_plan(plan: dict) -> Optional[dict]:
 
         if not raw:
             # Empty input (Enter) → prompt for additional context then execute
-            print(_c("\nOptional: Add global instructions for all tasks (Enter to skip):", "yellow"))
-            try:
-                extra = input(_c("  + ", "yellow")).strip()
-                if extra:
-                    if plan.get("additional_context"):
-                        plan["additional_context"] += "\n\n" + extra
-                    else:
-                        plan["additional_context"] = extra
-                    print(_c(f"✓ Added: {extra[:100]}{'...' if len(extra) > 100 else ''}", "green"))
-            except (EOFError, KeyboardInterrupt):
-                pass
+            extra = _multiline_input("\nOptional: Add global instructions for all tasks")
+            if extra:
+                if plan.get("additional_context"):
+                    plan["additional_context"] += "\n\n" + extra
+                else:
+                    plan["additional_context"] = extra
+                preview = extra[:100] + "..." if len(extra) > 100 else extra
+                preview = preview.replace("\n", " ")
+                print(_c(f"✓ Added: {preview}", "green"))
             return plan
 
         parts = raw.split()
@@ -149,17 +173,15 @@ def edit_plan(plan: dict) -> Optional[dict]:
 
         # ── go / execute ──────────────────────────────────────────────
         if cmd in ("go", "run", "exec", "execute"):
-            print(_c("\nOptional: Add global instructions for all tasks (Enter to skip):", "yellow"))
-            try:
-                extra = input(_c("  + ", "yellow")).strip()
-                if extra:
-                    if plan.get("additional_context"):
-                        plan["additional_context"] += "\n\n" + extra
-                    else:
-                        plan["additional_context"] = extra
-                    print(_c(f"✓ Added: {extra[:100]}{'...' if len(extra) > 100 else ''}", "green"))
-            except (EOFError, KeyboardInterrupt):
-                pass
+            extra = _multiline_input("\nOptional: Add global instructions for all tasks")
+            if extra:
+                if plan.get("additional_context"):
+                    plan["additional_context"] += "\n\n" + extra
+                else:
+                    plan["additional_context"] = extra
+                preview = extra[:100] + "..." if len(extra) > 100 else extra
+                preview = preview.replace("\n", " ")
+                print(_c(f"✓ Added: {preview}", "green"))
             return plan
 
         # ── quit ─────────────────────────────────────────────────────

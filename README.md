@@ -191,12 +191,21 @@ plan> note Use TypeScript strict mode and include error handling
 ```
 plan> go
 
-Optional: Add global instructions for all tasks (Enter to skip):
+Optional: Add global instructions for all tasks
+  (Enter multiple lines, empty line to finish, 'cancel' to abort)
   + Make sure all code follows PEP 8 style guide
-✓ Added: Make sure all code follows PEP 8 style guide
+  + Include comprehensive error handling
+  + Add type hints to all functions
+  +
+✓ Added: Make sure all code follows PEP 8 style guide Include comprehensive...
 ```
 
-입력을 건너뛰려면 그냥 `Enter`를 누르면 됩니다.
+**여러 줄 입력 방법:**
+- 각 줄을 입력하고 Enter
+- 붙여넣기(Paste)로 여러 줄 한 번에 입력 가능
+- 빈 줄 입력하면 완료
+- `cancel` 입력하면 취소
+- 입력 없이 빈 줄만 입력하면 건너뛰기
 
 **적용 방식**
 
