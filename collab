@@ -6,10 +6,10 @@
 REAL_SCRIPT="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$REAL_SCRIPT")" && pwd)"
 
-# Route 'research' subcommand to research_mode.py
-if [ "$1" = "research" ]; then
-    shift
-    python3 "$SCRIPT_DIR/research/research_mode.py" "$@"
+if [ -n "${PYTHONPATH:-}" ]; then
+    export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
 else
-    python3 "$SCRIPT_DIR/orchestrator.py" "$@"
+    export PYTHONPATH="$SCRIPT_DIR"
 fi
+
+exec python3 -m agent_collab.cli "$@"

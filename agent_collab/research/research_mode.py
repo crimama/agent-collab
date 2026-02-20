@@ -5,8 +5,8 @@ import argparse
 import os
 import sys
 import time
-import threading
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -140,7 +140,10 @@ def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_ro
 
 def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                          resume_path=None, plan_only=False, interactive=False) -> None:
-    from agent_collab.session_store import new_research_session
+    from agent_collab.session_store import (
+        new_research_session,
+        find_research_session_by_state_path,
+    )
 
     # Expand any /file references in the goal
     goal, attached = expand_file_refs(goal, cwd)
@@ -149,8 +152,16 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
         names = [os.path.basename(p) for p in attached]
         print(_c(f"  📎 {len(attached)} file(s) attached: {', '.join(names)}", "dim"))
 
-    if resume_path and Path(resume_path).exists():
-        state = ResearchState.load(resume_path)
+    collab_session = None
+    session_paused = False
+
+    if resume_path:
+        resume_file = Path(resume_path)
+        if not resume_file.exists():
+            print(_c(f"  ❌ Research state file not found: {resume_path}", "red", "bold"))
+            return
+
+        state = ResearchState.load(str(resume_file))
         # Determine which round to resume from
         if state.current_round:
             resume_round_num = state.current_round.round_num
@@ -158,7 +169,17 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
         else:
             resume_round_num = len(state.rounds) + 1
             print(_c(f"Resuming from {resume_path} (round {resume_round_num})", "yellow"))
-        collab_session = None  # already registered on first run
+
+        # Re-link to existing session metadata (if it exists)
+        collab_session = find_research_session_by_state_path(str(resume_file))
+        if collab_session:
+            collab_session.status = "in_progress"
+            collab_session.total_rounds = max(collab_session.total_rounds, total_rounds)
+            collab_session.current_round = (
+                state.current_round.round_num if state.current_round else len(state.rounds)
+            )
+            collab_session.research_state_path = str(state.save())
+            collab_session.save()
     else:
         state = ResearchState(goal=goal, session_dir=cwd)
         state_path = str(Path(cwd) / "research_state.json")
@@ -233,22 +254,38 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                     if response in ("n", "no", "q", "quit", "exit"):
                         print(_c(f"\n  ⏸  Research paused after round {round_num}.", "yellow", "bold"))
                         print(_c(f"  Resume with: collab research --resume research_state.json", "dim"))
+                        session_paused = True
                         break
                     # Any other input (including empty/Enter) continues
                 except (EOFError, KeyboardInterrupt):
                     print()
                     print(_c(f"\n  ⏸  Research paused after round {round_num}.", "yellow", "bold"))
+                    session_paused = True
                     break
     except KeyboardInterrupt:
         print(_c("\n\n  ⚠️  Research cancelled by user", "yellow", "bold"))
         print(_c(f"  Progress saved at round {len(state.rounds)}", "dim"))
         print()
         if collab_session:
+            collab_session.status = "in_progress"
+            collab_session.current_round = (
+                state.current_round.round_num if state.current_round else len(state.rounds)
+            )
+            collab_session.research_state_path = str(state.save())
             collab_session.save()
         return
 
     if collab_session:
-        collab_session.mark_completed()
+        collab_session.current_round = len(state.rounds)
+        collab_session.research_state_path = str(state.save())
+        if session_paused:
+            collab_session.status = "in_progress"
+            collab_session.save()
+        else:
+            collab_session.mark_completed()
+
+    if session_paused:
+        return
 
     report_path = Path(cwd) / f"research_report_{time.strftime('%Y%m%d_%H%M%S')}.md"
     report_path.write_text(state.markdown_report())

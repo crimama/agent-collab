@@ -142,3 +142,24 @@ def list_research_sessions(limit: int = 10) -> list[Session]:
     all_sessions = list_sessions(limit=50)  # Get more to filter
     research_sessions = [s for s in all_sessions if s.type == "research"]
     return research_sessions[:limit]
+
+
+def find_research_session_by_state_path(research_state_path: str, limit: int = 200) -> Optional[Session]:
+    """Find a research session by its state file path."""
+    try:
+        target = Path(research_state_path).expanduser().resolve()
+    except Exception:
+        target = Path(research_state_path).expanduser()
+
+    for s in list_research_sessions(limit=limit):
+        if not s.research_state_path:
+            continue
+        try:
+            candidate = Path(s.research_state_path).expanduser().resolve()
+            if candidate == target:
+                return s
+        except Exception:
+            if s.research_state_path == research_state_path:
+                return s
+
+    return None

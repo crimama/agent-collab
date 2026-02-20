@@ -384,7 +384,7 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
 
 def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool,
                      n_experiments: int = 2, cwd: str = ".", max_retries: int = 3) -> StepResult:
-    import json, re, sys
+    import json, re
     from pathlib import Path
     from agent_collab.research.monitor import run_background_task, parse_experiment_command, get_log_content, _c
 
@@ -414,7 +414,6 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
     outputs = codex_pool.run(tasks, synthesize=False)
 
     # Check if any outputs indicate background tasks
-    background_tasks = []
     final_outputs = []
 
     for output in outputs:
@@ -489,8 +488,7 @@ Respond with the fixed experiment setup:"""
                 print(_c(f"  🤖 Asking Codex to analyze and fix the error...", "cyan"))
 
                 # Get fixed implementation from Codex
-                from agent_collab.agents import CodexAgent
-                fix_result = codex_pool.agents[0].run(fix_prompt, cwd=cwd)
+                fix_result = codex_pool.codex.run(fix_prompt, cwd=cwd)
 
                 if not fix_result.success:
                     print(_c(f"  ❌ Could not generate fix. Stopping retry.", "red"))
