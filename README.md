@@ -157,9 +157,18 @@ Claude가 서브태스크 분해 + 에이전트 배정
     │
     ▼
 플랜 미리보기 (대화형 편집기)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✨ Review the plan above and choose an action:
+  • Press Enter to execute now
+  • Type h for all commands
+  • Type r <n> <agent> to reassign a task
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+plan> (Enter to execute, h for help)
     │
-    ├─ Enter / go  → 실행
-    ├─ r 2 claude  → 태스크 2를 Claude로 변경
+    ├─ Enter       → 바로 실행
+    ├─ h           → 전체 명령어 보기
+    ├─ r 2 codex   → 태스크 2를 Codex로 변경
     ├─ e 3         → 태스크 3 프롬프트 직접 편집
     ├─ d 5         → 태스크 5 삭제
     ├─ a           → 새 태스크 추가
@@ -174,19 +183,62 @@ Claude가 서브태스크 분해 + 에이전트 배정
 
 ### 플랜 편집기 명령어
 
-| 명령어 | 설명 |
-|--------|------|
-| `Enter` \| `go` | 플랜 실행 (추가 지시사항 입력 프롬프트 표시) |
-| `r <n> <agent>` | 태스크 n의 에이전트 변경 (`claude` \| `codex`) |
-| `e <n>` | 태스크 n의 프롬프트 직접 편집 |
-| `v <n>` | 태스크 n의 전체 프롬프트 보기 |
-| `d <n>` | 태스크 n 삭제 |
-| `a` | 새 태스크 추가 |
-| `p <n>` | 태스크 n 병렬 실행 토글 |
-| `dep <n> <ids>` | 의존성 설정 (예: `dep 3 1 2`) |
-| `note <text>` | 모든 태스크에 적용할 전역 지시사항 설정 |
-| `verbose` | 프롬프트 표시 토글 |
-| `q` | 취소 |
+#### 🚀 Quick Actions
+| 명령어 | 설명 | 예시 |
+|--------|------|------|
+| `Enter` \| `go` | 플랜 실행 | 그냥 Enter |
+| `h` \| `help` | 전체 도움말 보기 | `h` |
+| `q` \| `quit` | 취소하고 종료 | `q` |
+
+#### ✏️ 태스크 수정
+| 명령어 | 설명 | 예시 |
+|--------|------|------|
+| `r <n> <agent>` | 태스크 n의 에이전트 변경 | `r 2 codex` |
+| `e <n>` | 태스크 n의 프롬프트 편집 | `e 3` |
+| `v <n>` | 태스크 n의 전체 프롬프트 보기 | `v 1` |
+| `d <n>` | 태스크 n 삭제 | `d 5` |
+
+#### ➕ 추가 설정
+| 명령어 | 설명 | 예시 |
+|--------|------|------|
+| `a` | 새 태스크 추가 | `a` |
+| `p <n>` | 태스크 n 병렬 실행 토글 | `p 2` |
+| `dep <n> <ids>` | 의존성 설정 | `dep 3 1 2` |
+| `note <text>` | 전역 지시사항 설정 | `note Use type hints` |
+| `show` | 플랜 새로고침 | `show` |
+| `verbose` | 상세 모드 토글 | `verbose` |
+
+### 💡 Quick Start 예시
+
+**시나리오 1: 플랜이 마음에 들어서 바로 실행**
+```
+plan> (Enter to execute, h for help) [그냥 Enter]
+```
+
+**시나리오 2: 태스크 2를 Codex로 변경 후 실행**
+```
+plan> (Enter to execute, h for help) r 2 codex
+✓ Task 2 → CODEX
+plan> (Enter to execute, h for help) [Enter]
+```
+
+**시나리오 3: 전역 지시사항 추가 후 실행**
+```
+plan> (Enter to execute, h for help) note Add type hints and docstrings
+✓ Global note set: Add type hints and docstrings
+plan> (Enter to execute, h for help) [Enter]
+```
+
+**시나리오 4: 도움말이 필요할 때**
+```
+plan> (Enter to execute, h for help) h
+
+━━━ Plan Editor Commands ━━━
+
+  🚀 Quick Actions:
+    Enter              → Execute the plan now
+    ...
+```
 
 ### 전역 지시사항 추가
 

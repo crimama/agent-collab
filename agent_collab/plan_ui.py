@@ -91,30 +91,48 @@ def print_plan(plan: dict, verbose: bool = False) -> None:
 
         if verbose:
             wrapped = textwrap.fill(t["prompt"], width=width - 8, initial_indent="        ", subsequent_indent="        ")
+            wrapped = textwrap.fill(t["prompt"], width=width - 8, initial_indent="        ", subsequent_indent="        ")
             print(_c(wrapped, "dim"))
             print()
 
+    # Quick command reference
+    if not verbose:
+        print(_c("  💡 Quick: ", "dim") +
+              _c("Enter", "green") + _c("=execute  ", "dim") +
+              _c("h", "yellow") + _c("=help  ", "dim") +
+              _c("r <n> <agent>", "yellow") + _c("=reassign  ", "dim") +
+              _c("q", "red") + _c("=quit", "dim"))
     print()
 
 
 def print_help() -> None:
-    cmds = [
-        ("Enter / go",  "Execute the plan (prompts for additional context)"),
-        ("r <n> <agent>","Reassign task n to 'claude' or 'codex'"),
-        ("e <n>",        "Edit task n's prompt interactively"),
-        ("v <n>",        "View full prompt of task n"),
-        ("d <n>",        "Delete task n"),
-        ("a",            "Add a new task"),
-        ("p <n>",        "Toggle parallel flag for task n"),
-        ("dep <n> <ids>","Set dependencies, e.g. 'dep 3 1 2'"),
-        ("note <text>",  "Add global note/context to all tasks"),
-        ("show",         "Refresh the plan view"),
-        ("verbose",      "Toggle verbose (show prompts)"),
-        ("q / quit",     "Cancel without executing"),
-    ]
-    print(_c("\nCommands:", "bold"))
-    for cmd, desc in cmds:
-        print(f"  {_c(cmd, 'yellow'):30}  {desc}")
+    print(_c("\n━━━ Plan Editor Commands ━━━", "cyan", "bold"))
+    print()
+
+    print(_c("  🚀 Quick Actions:", "bold"))
+    print(f"    {_c('Enter', 'green', 'bold'):20}  → Execute the plan now")
+    print(f"    {_c('go', 'green', 'bold'):20}  → Execute the plan now")
+    print(f"    {_c('q', 'red', 'bold'):20}  → Cancel and quit")
+    print()
+
+    print(_c("  ✏️  Edit Tasks:", "bold"))
+    print(f"    {_c('r 2 codex', 'yellow'):20}  → Reassign task 2 to Codex")
+    print(f"    {_c('e 3', 'yellow'):20}  → Edit task 3's prompt")
+    print(f"    {_c('v 1', 'yellow'):20}  → View full prompt of task 1")
+    print(f"    {_c('d 4', 'yellow'):20}  → Delete task 4")
+    print()
+
+    print(_c("  ➕ Add & Configure:", "bold"))
+    print(f"    {_c('a', 'yellow'):20}  → Add a new task")
+    print(f"    {_c('p 2', 'yellow'):20}  → Toggle parallel execution for task 2")
+    print(f"    {_c('dep 3 1 2', 'yellow'):20}  → Task 3 depends on tasks 1 and 2")
+    print(f"    {_c('note <text>', 'yellow'):20}  → Add global instructions for all tasks")
+    print()
+
+    print(_c("  📋 View:", "bold"))
+    print(f"    {_c('show', 'yellow'):20}  → Refresh the plan view")
+    print(f"    {_c('verbose', 'yellow'):20}  → Toggle detailed prompt display")
+    print(f"    {_c('h / help', 'yellow'):20}  → Show this help again")
     print()
 
 
@@ -146,11 +164,19 @@ def edit_plan(plan: dict) -> Optional[dict]:
     if plan.get("additional_context"):
         print(_c(f"  📝 Global note: {plan['additional_context']}", "yellow"))
         print()
-    print_help()
+
+    # Initial guidance
+    print(_c("━" * 70, "cyan"))
+    print(_c("  ✨ Review the plan above and choose an action:", "cyan", "bold"))
+    print(_c("  • Press ", "dim") + _c("Enter", "green", "bold") + _c(" to execute now", "dim"))
+    print(_c("  • Type ", "dim") + _c("h", "yellow", "bold") + _c(" for all commands", "dim"))
+    print(_c("  • Type ", "dim") + _c("r <n> <agent>", "yellow", "bold") + _c(" to reassign a task", "dim"))
+    print(_c("━" * 70, "cyan"))
+    print()
 
     while True:
         try:
-            raw = input(_c("plan> ", "yellow", "bold")).strip()
+            raw = input(_c("plan> ", "cyan", "bold") + _c("(Enter to execute, h for help) ", "dim")).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return None
@@ -367,4 +393,26 @@ def edit_plan(plan: dict) -> Optional[dict]:
             print_plan(plan, verbose=verbose)
             continue
 
-        print(_c(f"Unknown command: '{raw}'. Type 'h' for help.", "dim"))
+        # Unknown command - provide helpful suggestions
+        print(_c(f"❌ Unknown command: '{raw}'", "red"))
+
+        # Suggest similar commands
+        suggestions = []
+        if cmd in ("run", "exec", "execute", "start"):
+            suggestions.append("Did you mean 'go' or just press Enter?")
+        elif cmd in ("exit", "cancel"):
+            suggestions.append("Did you mean 'q' or 'quit'?")
+        elif cmd in ("help", "?", "commands"):
+            suggestions.append("Type 'h' for help")
+        elif cmd == "r" and len(parts) < 3:
+            suggestions.append("Usage: r <task_id> <agent>  (e.g., 'r 2 codex')")
+        elif cmd in ("e", "v", "d", "p") and len(parts) < 2:
+            suggestions.append(f"Usage: {cmd} <task_id>  (e.g., '{cmd} 2')")
+        elif cmd == "dep" and len(parts) < 3:
+            suggestions.append("Usage: dep <task_id> <dep_id1> [dep_id2...]  (e.g., 'dep 3 1 2')")
+        else:
+            suggestions.append("Type 'h' to see all available commands")
+
+        for suggestion in suggestions:
+            print(_c(f"   💡 {suggestion}", "yellow"))
+        print()
