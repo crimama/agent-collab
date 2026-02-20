@@ -128,7 +128,30 @@ collab research "Improve @lora.py performance"
     /files *.py      → find all Python files
 ```
 
-#### 2. Tab 자동완성
+#### 2. 인터랙티브 파일 선택
+
+`@pattern?` 입력 시 선택 가능한 파일 목록이 자동으로 표시됩니다:
+
+```bash
+▶ Review @main?
+
+  📁 Select a file (or Esc to cancel):
+    1. paper/main.tex
+    2. src/main.py
+    3. tests/main_test.py
+
+  Enter number (1-3) or Esc: 1
+
+▶ Review @paper/main.tex    # 자동으로 선택된 파일로 대체됨
+```
+
+**사용법:**
+- `@pattern?` - 패턴과 일치하는 파일 선택 메뉴 표시
+- `/path?` - 절대 경로로 파일 검색 및 선택
+- 숫자 입력으로 파일 선택
+- `Esc` 또는 빈 입력으로 취소
+
+#### 3. Tab 자동완성
 
 `collab -i` 대화형 모드에서 `/path` 및 `@name` 입력 후 `Tab`으로 자동완성합니다.
 

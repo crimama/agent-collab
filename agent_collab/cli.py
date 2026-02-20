@@ -138,16 +138,82 @@ class _ReplCtx:
         return chars // 4
 
 
+def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[str]:
+    """
+    Show interactive file selector when Tab is pressed on @pattern or /pattern.
+    Returns the selected file path or None if cancelled.
+    """
+    from agent_collab.file_ref import list_file_candidates
+
+    # Determine search pattern
+    if pattern.startswith("@"):
+        search = pattern[1:]
+        prefix = "@"
+    elif pattern.startswith("/"):
+        search = pattern
+        prefix = ""
+    else:
+        return None
+
+    # Get candidates
+    candidates = list_file_candidates(search, cwd) if search else []
+
+    if not candidates:
+        return None
+
+    if len(candidates) == 1:
+        # Only one match - auto-complete
+        return prefix + candidates[0] if prefix else candidates[0]
+
+    # Multiple matches - show selection menu
+    print(_c("\n  📁 Select a file (or Esc to cancel):", "cyan", "bold"))
+    for i, path in enumerate(candidates, 1):
+        filename = os.path.basename(path)
+        dirname = os.path.dirname(path)
+        dir_str = _c(f"{dirname}/", "dim") if dirname else ""
+        print(f"    {_c(str(i), 'yellow', 'bold'):>3}. {dir_str}{_c(filename, 'green')}")
+
+    print()
+    try:
+        choice = input(_c("  Enter number (1-{}) or Esc: ".format(len(candidates)), "cyan"))
+        choice = choice.strip()
+
+        if not choice or choice.lower() in ("esc", "q", "cancel"):
+            return None
+
+        idx = int(choice) - 1
+        if 0 <= idx < len(candidates):
+            selected = candidates[idx]
+            return prefix + selected if prefix else selected
+    except (ValueError, KeyboardInterrupt, EOFError):
+        pass
+
+    return None
+
+
 # ─── Multi-line input ──────────────────────────────────────────────────────────
-def _multiline_input(prompt_str: str) -> str:
+def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
     """
     Read one line, or a multi-line block when the line starts with \"\"\".
+    Supports interactive file selection with @pattern<Tab>.
     End multi-line mode with \"\"\" on its own line or Ctrl+D.
     """
     try:
         first = input(prompt_str)
     except EOFError:
         return ""
+
+    # Check for file reference pattern
+    # If line ends with @something or /something, offer interactive selection
+    import re
+    file_pattern = re.search(r'(@\S+|/\S+)$', first)
+    if file_pattern and first.rstrip().endswith(('?', '??')):
+        # User typed @pattern? or /pattern? - trigger interactive selection
+        pattern = file_pattern.group(1).rstrip('?')
+        selected = _interactive_file_select(first, pattern, cwd)
+        if selected:
+            # Replace pattern with selected file
+            first = first[:file_pattern.start()] + selected
 
     if not first.startswith('"""'):
         return first.strip()
@@ -440,23 +506,39 @@ def _setup_file_completion(cwd: str) -> None:
         import readline
         import glob as _glob
 
+        # Store matches for interactive selection
+        _completion_matches = []
+
         def _completer(text: str, state: int) -> Optional[str]:
-            if text.startswith("/"):
-                matches = [
-                    (m + "/" if os.path.isdir(m) else m)
-                    for m in _glob.glob(text + "*")
-                ]
-            elif text.startswith("@"):
-                name = text[1:]
-                hits = _glob.glob(os.path.join(cwd, "**", name + "*"), recursive=True)
-                matches = ["@" + os.path.relpath(h, cwd) for h in hits if os.path.isfile(h)]
-            else:
-                return None
-            return matches[state] if state < len(matches) else None
+            nonlocal _completion_matches
+
+            if state == 0:  # First call - generate matches
+                _completion_matches = []
+
+                if text.startswith("/"):
+                    matches = [
+                        (m + "/" if os.path.isdir(m) else m)
+                        for m in _glob.glob(text + "*")
+                    ]
+                    _completion_matches = matches
+                elif text.startswith("@"):
+                    name = text[1:]
+                    hits = _glob.glob(os.path.join(cwd, "**", name + "*"), recursive=True)
+                    matches = ["@" + os.path.relpath(h, cwd) for h in hits if os.path.isfile(h)]
+                    _completion_matches = matches[:20]  # Limit to 20 for display
+                else:
+                    return None
+
+            return _completion_matches[state] if state < len(_completion_matches) else None
 
         readline.set_completer(_completer)
         readline.set_completer_delims(" \t\n;")
         readline.parse_and_bind("tab: complete")
+
+        # Make Tab show all matches at once instead of cycling
+        readline.parse_and_bind("set show-all-if-ambiguous on")
+        readline.parse_and_bind("set completion-display-width 1")
+
     except (ImportError, AttributeError):
         pass
 
@@ -590,13 +672,14 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     print(_c("╰─────────────────────────────────────────────────╯", "cyan"))
     print()
     print(
-        "  " + _c("/path/to/file.py", "yellow") + " or " +
-        _c("@filename.py", "yellow") + _c("  attach files", "dim") +
-        "   │   " + _c("@?pattern", "yellow") + _c("  find files", "dim")
+        "  " + _c("@file.py", "yellow") + _c("  attach", "dim") +
+        "  │  " + _c("@pattern?", "yellow") + _c("  select file", "dim") +
+        "  │  " + _c("@?pattern", "yellow") + _c("  search files", "dim")
     )
     print(
-        "  " + _c('"""', "yellow") + _c("  multi-line input", "dim") +
-        "   │   " + _c("/help", "yellow") + _c("  show commands", "dim")
+        "  " + _c('"""', "yellow") + _c("  multi-line", "dim") +
+        "  │  " + _c("Tab", "yellow") + _c("  autocomplete", "dim") +
+        "  │  " + _c("/help", "yellow") + _c("  commands", "dim")
     )
     print()
 
@@ -611,7 +694,7 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
         prompt_str = prefix + _c("▶ ", "magenta", "bold")
 
         try:
-            raw = _multiline_input(prompt_str)
+            raw = _multiline_input(prompt_str, cwd)
         except (EOFError, KeyboardInterrupt):
             print()
             break
