@@ -121,7 +121,22 @@ IMPLEMENTATION:
 EXPERIMENT TO RUN: {exp_name}
 {exp_description}
 
-Execute this experiment and report:
+CRITICAL: If this is a LONG-RUNNING experiment (e.g., deep learning training taking hours/days):
+1. Run it as a BACKGROUND_TASK
+2. Specify the exact shell command
+3. Provide the log file path to monitor
+4. Indicate completion pattern to detect when done
+
+Format for background tasks:
+```
+BACKGROUND_TASK: true
+COMMAND: python run_moleflow.py --task_classes leather grid --num_epochs 60 --experiment_name V65_exp1
+LOG_FILE: logs/V65_exp1/training.log
+COMPLETION_PATTERN: Training completed
+ESTIMATED_TIME: 4-6 hours
+```
+
+For SHORT experiments (< 2 minutes), run directly and report:
 ```
 EXPERIMENT: {exp_name}
 STATUS: [SUCCESS/FAILED/PARTIAL]
@@ -252,7 +267,9 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
 
 def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool,
                      n_experiments: int = 2, cwd: str = ".") -> StepResult:
-    import json, re
+    import json, re, sys
+    from agent_collab.research.monitor import run_background_task, parse_experiment_command, _c
+
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
     exp_configs = []
@@ -265,6 +282,8 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
     if not exp_configs:
         exp_configs = [{"name": f"experiment_{i+1}", "description": f"Experiment variant {i+1}"}
                        for i in range(n_experiments)]
+
+    # First, get agent plans for each experiment
     tasks = [
         PoolTask(role=f"exp-{cfg.get('name', f'exp_{i+1}')}", agent="codex",
                  prompt=_S4_EXPERIMENT.format(
@@ -275,8 +294,79 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
         for i, cfg in enumerate(exp_configs)
     ]
     outputs = codex_pool.run(tasks, synthesize=False)
+
+    # Check if any outputs indicate background tasks
+    background_tasks = []
+    final_outputs = []
+
+    for output in outputs:
+        bg_info = parse_experiment_command(output.output)
+        if bg_info:
+            # This is a background task
+            print(_c(f"\n  🎯 Detected long-running experiment: {output.role}", "yellow", "bold"))
+            if 'estimated_time' in bg_info:
+                print(_c(f"  ⏱️  Estimated time: {bg_info['estimated_time']}", "dim"))
+            print()
+
+            # Run in background and wait for completion
+            task_id = output.role
+            progress = run_background_task(
+                task_id=task_id,
+                command=bg_info['command'],
+                cwd=cwd,
+                log_file=bg_info.get('log_file'),
+                patterns=bg_info.get('patterns'),
+                wait=True,
+            )
+
+            # Create result output
+            if progress.status == "completed":
+                result_text = f"""EXPERIMENT: {task_id}
+STATUS: SUCCESS (Background task completed)
+DURATION: {progress.last_update - progress.started_at:.0f}s
+
+METRICS:"""
+                if progress.current_metric:
+                    for k, v in progress.current_metric.items():
+                        if k == 'loss':
+                            result_text += f"\n  - {k}: {v:.4f}"
+                        else:
+                            result_text += f"\n  - {k}: {v:.2%}"
+
+                if progress.current_epoch and progress.total_epochs:
+                    result_text += f"\n\nCOMPLETED: {progress.current_epoch}/{progress.total_epochs} epochs"
+
+                # Append original setup info
+                result_text += f"\n\n--- Original Setup ---\n{output.output}"
+
+                final_outputs.append(AgentOutput(
+                    agent=output.agent, role=output.role,
+                    output=result_text,
+                    duration_s=progress.last_update - progress.started_at,
+                    success=True,
+                ))
+            else:
+                # Failed
+                error_text = f"""EXPERIMENT: {task_id}
+STATUS: FAILED
+ERROR: {progress.error_message or 'Process failed'}
+EXIT_CODE: {progress.exit_code}
+
+--- Original Setup ---
+{output.output}"""
+                final_outputs.append(AgentOutput(
+                    agent=output.agent, role=output.role,
+                    output=error_text,
+                    duration_s=progress.last_update - progress.started_at,
+                    success=False, error=progress.error_message,
+                ))
+        else:
+            # Regular short experiment, use output as-is
+            final_outputs.append(output)
+
     return StepResult(step_id=4, step_name="Experiment Execution",
-                      outputs=outputs, synthesized="\n\n".join(o.output for o in outputs),
+                      outputs=final_outputs,
+                      synthesized="\n\n".join(o.output for o in final_outputs),
                       duration_s=time.time() - t0)
 
 

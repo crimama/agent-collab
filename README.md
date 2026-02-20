@@ -643,6 +643,118 @@ collab research --cwd /Volume/MoLeFlow --rounds 3 \
 | `research_state.json` | 매 Step 완료 시 | 전체 세션 상태 (재개 가능) |
 | `research_report_*.md` | 세션 종료 시 | 모든 라운드 결과 마크다운 리포트 |
 
+### 장시간 실행 실험 (딥러닝 학습) 지원 🚀
+
+Step 4 (Experiment Execution)에서 **몇 시간 ~ 며칠이 소요되는 딥러닝 학습**을 백그라운드로 실행하고 자동으로 모니터링합니다.
+
+#### 동작 방식
+
+1. **자동 감지**: Codex 에이전트가 `BACKGROUND_TASK: true` 태그를 출력하면 백그라운드 실행으로 전환
+2. **백그라운드 실행**: 학습 스크립트를 백그라운드 프로세스로 시작
+3. **실시간 모니터링**: 로그 파일을 주기적으로 파싱하여 진행상황 표시
+4. **완료 감지**: 특정 패턴 또는 파일 생성으로 완료 자동 감지
+5. **자동 재개**: 완료 후 Step 5 (Result Analysis)로 자동 진행
+
+#### Codex 에이전트 출력 형식
+
+실험 에이전트가 다음 형식으로 응답하면 백그라운드 실행이 활성화됩니다:
+
+```
+BACKGROUND_TASK: true
+COMMAND: python run_moleflow.py --task_classes leather grid transistor --num_epochs 60 --experiment_name V65_exp1
+LOG_FILE: logs/V65_exp1/training.log
+COMPLETION_PATTERN: Training completed
+ESTIMATED_TIME: 4-6 hours
+```
+
+#### 실시간 진행상황 표시
+
+```
+  🚀 Started background task: exp-V65_exp1
+  📝 PID: 12345
+  📄 Logs: /Volume/MoLeFlow/logs/V65_exp1/training.log
+
+  ⠋ Epoch 15/60 (25%) | Loss=1.2345 | AUC=94.23% | PIXEL_AP=52.31% [1h 23m]
+```
+
+로그 파일에서 자동으로 파싱하는 정보:
+- **Epoch 진행**: `Epoch 5/60` 패턴
+- **Loss 값**: `Loss: 1.234` 패턴
+- **메트릭**: `AUC=0.985`, `Pixel AP: 58.3%` 등
+- **경과 시간**: 실시간 카운터
+
+#### 완료 감지 패턴
+
+다음 패턴 중 하나가 로그에 나타나면 자동으로 완료 처리:
+
+**성공 패턴:**
+- `Training completed`
+- `Experiment finished`
+- `All tasks complete`
+- `Final results:`
+- `✓ ... complete`
+
+**실패 패턴:**
+- `Error:`, `Exception:`
+- `CUDA out of memory`
+- `Traceback`
+
+#### 완료 후 자동 분석
+
+실험이 완료되면 Step 5 (Result Analysis) 에이전트가 자동으로 호출되어:
+1. 로그 파일에서 최종 메트릭 추출
+2. 이전 라운드 결과와 비교
+3. 성능 개선/하락 원인 분석
+4. 다음 라운드를 위한 가설 제시
+
+#### 사용 예시
+
+```bash
+# 딥러닝 학습 포함된 연구 세션 시작
+collab research --rounds 3 "MVTec Pixel AP 58% → 62% 달성"
+```
+
+**실제 동작:**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Round 1 of 3
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 4 → Experiment Execution (2 experiments)
+
+  🎯 Detected long-running experiment: exp-V65_baseline
+  ⏱️  Estimated time: 4-6 hours
+
+  🚀 Started background task: exp-V65_baseline
+  📝 PID: 12345
+  📄 Logs: logs/V65_baseline/training.log
+
+  ⠋ Epoch 45/60 (75%) | Loss=0.0234 | AUC=98.47% | PIXEL_AP=58.18% [3h 45m]
+
+  ... (4시간 30분 경과) ...
+
+  ✅ Task completed: exp-V65_baseline (4h 32m)
+     • auc: 98.51%
+     • pixel_ap: 58.62%
+
+━━━ Step 5 (자동 진행) → Result Analysis ━━━
+
+  ✓ [CLAUDE]  Analyzing results...
+  ...
+```
+
+#### 타임아웃 설정
+
+기본 타임아웃은 24시간입니다. 더 긴 실험의 경우 코드에서 조정 가능:
+
+```python
+# research/monitor.py
+DEFAULT_PATTERNS = CompletionPattern(
+    ...
+    timeout_seconds=72 * 3600,  # 72시간
+)
+```
+
 ---
 
 ## 세션 관리
