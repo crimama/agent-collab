@@ -78,7 +78,35 @@ def _run_planner(goal: str, cwd: str) -> str:
     return proc.stdout.strip()
 
 
-def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2) -> dict:
+def _auto_detect_parallel_tasks(tasks: list) -> None:
+    """
+    Automatically mark tasks as parallel if they can run concurrently.
+    Tasks are parallelizable if they:
+    1. Have no dependencies on each other
+    2. Only depend on already-completed tasks (earlier IDs)
+    """
+    # Build dependency map
+    task_ids = [t["id"] for t in tasks]
+
+    # Group tasks by their maximum dependency ID
+    # Tasks with the same max_dep can potentially run in parallel
+    groups: dict[int, list] = {}
+    for t in tasks:
+        deps = t.get("depends_on", [])
+        max_dep = max(deps) if deps else 0
+        if max_dep not in groups:
+            groups[max_dep] = []
+        groups[max_dep].append(t)
+
+    # Mark tasks as parallel if there are multiple tasks in the same group
+    for max_dep, group_tasks in groups.items():
+        if len(group_tasks) >= 2:
+            # Multiple tasks with same dependencies can run in parallel
+            for t in group_tasks:
+                t["parallel"] = True
+
+
+def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2, auto_parallel: bool = True) -> dict:
     """Call Claude to decompose `goal` into a structured plan. Retries on parse failure."""
     last_error = None
 
@@ -112,6 +140,14 @@ def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2) -> dict:
             t.setdefault("depends_on", [])
             t.setdefault("parallel", False)
             t.setdefault("prompt", "")
+
+        # Auto-detect parallel tasks if enabled
+        if auto_parallel:
+            _auto_detect_parallel_tasks(plan["tasks"])
+            parallel_count = sum(1 for t in plan["tasks"] if t.get("parallel"))
+            if parallel_count > 0:
+                import sys
+                print(f"  ⚡ {parallel_count} task(s) will run in parallel for faster execution", file=sys.stderr)
 
         # Warn if all tasks assigned to same agent
         agents = [t["agent"] for t in plan["tasks"]]

@@ -201,6 +201,32 @@ collab "CSV 데이터를 PostgreSQL에 적재하는 파이프라인 구현"
    Use 'r <task_id> codex' or 'r <task_id> claude'
 ```
 
+### ⚡ 자동 병렬 실행
+
+**의존성이 없는 태스크는 자동으로 병렬 실행됩니다!**
+
+플래너가 자동으로 독립적인 태스크를 감지하여 동시에 실행합니다:
+
+```
+  ⚡ 3 task(s) will run in parallel for faster execution
+
+  #  Agent     Title
+  ────────────────────────────────────────────────
+  1  CLAUDE   Design API architecture
+  2  CODEX    Generate test fixtures          ∥parallel
+  3  CODEX    Setup database schema            ∥parallel
+  4  CLAUDE   Review and integrate code
+```
+
+**병렬 실행 조건:**
+- 서로 의존성이 없는 태스크
+- 동일한 단계(wave)에서 실행 가능한 태스크
+- 2개 이상의 태스크가 동시에 실행 가능할 때
+
+**속도 향상 예시:**
+- 순차 실행: Task2(5분) → Task3(5분) = **10분**
+- 병렬 실행: Task2(5분) ∥ Task3(5분) = **5분** ⚡
+
 ### 실행 흐름
 
 ```
