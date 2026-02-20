@@ -142,13 +142,17 @@ collab research "Improve @lora.py performance"
 
   Enter number (1-3) or Esc: 1
 
-▶ Review @paper/main.tex    # 자동으로 선택된 파일로 대체됨
+  ✓ Selected: @paper/main.tex
+  Continue editing (or press Enter to submit):
+▶ Review @paper/main.tex and suggest improvements    # 계속 입력 가능!
 ```
 
 **사용법:**
 - `@pattern?` - 패턴과 일치하는 파일 선택 메뉴 표시
 - `/path?` - 절대 경로로 파일 검색 및 선택
 - 숫자 입력으로 파일 선택
+- 선택 후 프롬프트 계속 편집 가능
+- `Enter`로 최종 제출
 - `Esc` 또는 빈 입력으로 취소
 
 #### 3. Tab 자동완성

@@ -138,10 +138,10 @@ class _ReplCtx:
         return chars // 4
 
 
-def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[str]:
+def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[tuple[str, str]]:
     """
     Show interactive file selector when Tab is pressed on @pattern or /pattern.
-    Returns the selected file path or None if cancelled.
+    Returns (before_pattern, selected_file) or None if cancelled.
     """
     from agent_collab.file_ref import list_file_candidates
 
@@ -163,7 +163,14 @@ def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[str]
 
     if len(candidates) == 1:
         # Only one match - auto-complete
-        return prefix + candidates[0] if prefix else candidates[0]
+        selected = prefix + candidates[0] if prefix else candidates[0]
+        # Find pattern in text and get the part before it
+        import re
+        match = re.search(r'(@\S+\?*|/\S+\?*)$', text)
+        if match:
+            before = text[:match.start()]
+            return (before, selected)
+        return (text, selected)
 
     # Multiple matches - show selection menu
     print(_c("\n  📁 Select a file (or Esc to cancel):", "cyan", "bold"))
@@ -184,7 +191,14 @@ def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[str]
         idx = int(choice) - 1
         if 0 <= idx < len(candidates):
             selected = candidates[idx]
-            return prefix + selected if prefix else selected
+            selected_path = prefix + selected if prefix else selected
+            # Find pattern in text and get the part before it
+            import re
+            match = re.search(r'(@\S+\?*|/\S+\?*)$', text)
+            if match:
+                before = text[:match.start()]
+                return (before, selected_path)
+            return (text, selected_path)
     except (ValueError, KeyboardInterrupt, EOFError):
         pass
 
@@ -195,7 +209,7 @@ def _interactive_file_select(text: str, pattern: str, cwd: str) -> Optional[str]
 def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
     """
     Read one line, or a multi-line block when the line starts with \"\"\".
-    Supports interactive file selection with @pattern<Tab>.
+    Supports interactive file selection with @pattern?.
     End multi-line mode with \"\"\" on its own line or Ctrl+D.
     """
     try:
@@ -204,16 +218,37 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
         return ""
 
     # Check for file reference pattern
-    # If line ends with @something or /something, offer interactive selection
+    # If line ends with @something? or /something?, offer interactive selection
     import re
-    file_pattern = re.search(r'(@\S+|/\S+)$', first)
-    if file_pattern and first.rstrip().endswith(('?', '??')):
+    file_pattern = re.search(r'(@\S+\?+|/\S+\?+)$', first)
+    if file_pattern:
         # User typed @pattern? or /pattern? - trigger interactive selection
         pattern = file_pattern.group(1).rstrip('?')
-        selected = _interactive_file_select(first, pattern, cwd)
-        if selected:
-            # Replace pattern with selected file
-            first = first[:file_pattern.start()] + selected
+        result = _interactive_file_select(first, pattern, cwd)
+        if result:
+            before, selected_file = result
+            # Show the updated prompt and let user continue editing
+            updated = before + selected_file
+            print(_c(f"\n  ✓ Selected: {selected_file}", "green"))
+            print(_c("  Continue editing (or press Enter to submit):", "dim"))
+
+            # Use readline to pre-fill the input with the updated text
+            try:
+                import readline
+                def prefill_hook():
+                    readline.insert_text(updated)
+                    readline.redisplay()
+                readline.set_pre_input_hook(prefill_hook)
+                first = input(prompt_str)
+                readline.set_pre_input_hook()  # Clear the hook
+            except (ImportError, AttributeError):
+                # Readline not available - just show and ask for continuation
+                print(f"  Current: {updated}")
+                continuation = input(_c("  Add more (or Enter to submit): ", "dim"))
+                if continuation.strip():
+                    first = updated + " " + continuation
+                else:
+                    first = updated
 
     if not first.startswith('"""'):
         return first.strip()
