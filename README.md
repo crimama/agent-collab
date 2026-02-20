@@ -282,7 +282,8 @@ plan> (Enter to execute, h for help)
 #### 🚀 Quick Actions
 | 명령어 | 설명 | 예시 |
 |--------|------|------|
-| `Enter` \| `go` | 플랜 실행 | 그냥 Enter |
+| `Enter` | **즉시 실행** (추가 프롬프트 없이) | 그냥 Enter |
+| `go` | 실행 (선택적으로 지시사항 추가 가능) | `go` |
 | `h` \| `help` | 전체 도움말 보기 | `h` |
 | `q` \| `quit` | 취소하고 종료 | `q` |
 
@@ -308,21 +309,34 @@ plan> (Enter to execute, h for help)
 
 **시나리오 1: 플랜이 마음에 들어서 바로 실행**
 ```
-plan> (Enter to execute, h for help) [그냥 Enter]
+plan> (Enter to execute, h for help) [Enter]
+→ 즉시 실행! 추가 프롬프트 없음
 ```
 
-**시나리오 2: 태스크 2를 Codex로 변경 후 실행**
+**시나리오 2: 실행 전 간단한 지시사항 추가**
+```
+plan> (Enter to execute, h for help) go
+
+  Optional: Add global instructions (Enter to skip):
+  + Use async/await for all I/O operations
+  ✓ Added: Use async/await for all I/O operations
+→ 지시사항 포함해서 실행
+```
+
+**시나리오 3: 태스크 수정 후 즉시 실행**
 ```
 plan> (Enter to execute, h for help) r 2 codex
 ✓ Task 2 → CODEX
 plan> (Enter to execute, h for help) [Enter]
+→ 즉시 실행
 ```
 
-**시나리오 3: 전역 지시사항 추가 후 실행**
+**시나리오 4: 복잡한 전역 지시사항 (멀티라인)**
 ```
-plan> (Enter to execute, h for help) note Add type hints and docstrings
-✓ Global note set: Add type hints and docstrings
+plan> (Enter to execute, h for help) note Use type hints, async/await, and comprehensive error handling
+✓ Global note set: Use type hints, async/await...
 plan> (Enter to execute, h for help) [Enter]
+→ 지시사항 포함해서 실행
 ```
 
 **시나리오 4: 도움말이 필요할 때**

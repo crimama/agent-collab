@@ -99,8 +99,8 @@ def print_plan(plan: dict, verbose: bool = False) -> None:
     if not verbose:
         print(_c("  💡 Quick: ", "dim") +
               _c("Enter", "green") + _c("=execute  ", "dim") +
+              _c("go", "green") + _c("=execute+prompt  ", "dim") +
               _c("h", "yellow") + _c("=help  ", "dim") +
-              _c("r <n> <agent>", "yellow") + _c("=reassign  ", "dim") +
               _c("q", "red") + _c("=quit", "dim"))
     print()
 
@@ -110,8 +110,8 @@ def print_help() -> None:
     print()
 
     print(_c("  🚀 Quick Actions:", "bold"))
-    print(f"    {_c('Enter', 'green', 'bold'):20}  → Execute the plan now")
-    print(f"    {_c('go', 'green', 'bold'):20}  → Execute the plan now")
+    print(f"    {_c('Enter', 'green', 'bold'):20}  → Execute immediately")
+    print(f"    {_c('go', 'green', 'bold'):20}  → Execute (with optional prompt)")
     print(f"    {_c('q', 'red', 'bold'):20}  → Cancel and quit")
     print()
 
@@ -168,9 +168,9 @@ def edit_plan(plan: dict) -> Optional[dict]:
     # Initial guidance
     print(_c("━" * 70, "cyan"))
     print(_c("  ✨ Review the plan above and choose an action:", "cyan", "bold"))
-    print(_c("  • Press ", "dim") + _c("Enter", "green", "bold") + _c(" to execute now", "dim"))
+    print(_c("  • Press ", "dim") + _c("Enter", "green", "bold") + _c(" to execute immediately", "dim"))
+    print(_c("  • Type ", "dim") + _c("go", "green", "bold") + _c(" to add optional instructions first", "dim"))
     print(_c("  • Type ", "dim") + _c("h", "yellow", "bold") + _c(" for all commands", "dim"))
-    print(_c("  • Type ", "dim") + _c("r <n> <agent>", "yellow", "bold") + _c(" to reassign a task", "dim"))
     print(_c("━" * 70, "cyan"))
     print()
 
@@ -182,16 +182,7 @@ def edit_plan(plan: dict) -> Optional[dict]:
             return None
 
         if not raw:
-            # Empty input (Enter) → prompt for additional context then execute
-            extra = _multiline_input("\nOptional: Add global instructions for all tasks")
-            if extra:
-                if plan.get("additional_context"):
-                    plan["additional_context"] += "\n\n" + extra
-                else:
-                    plan["additional_context"] = extra
-                preview = extra[:100] + "..." if len(extra) > 100 else extra
-                preview = preview.replace("\n", " ")
-                print(_c(f"✓ Added: {preview}", "green"))
+            # Empty input (Enter) → execute immediately
             return plan
 
         parts = raw.split()
@@ -199,15 +190,21 @@ def edit_plan(plan: dict) -> Optional[dict]:
 
         # ── go / execute ──────────────────────────────────────────────
         if cmd in ("go", "run", "exec", "execute"):
-            extra = _multiline_input("\nOptional: Add global instructions for all tasks")
-            if extra:
-                if plan.get("additional_context"):
-                    plan["additional_context"] += "\n\n" + extra
-                else:
-                    plan["additional_context"] = extra
-                preview = extra[:100] + "..." if len(extra) > 100 else extra
-                preview = preview.replace("\n", " ")
-                print(_c(f"✓ Added: {preview}", "green"))
+            # Optionally ask for additional context (skippable with Enter)
+            print(_c("\n  Optional: Add global instructions (Enter to skip, or type instructions):", "cyan"))
+            print(_c("  (For multi-line, type 'note <text>' first, then 'go')", "dim"))
+            try:
+                extra = input(_c("  + ", "yellow")).strip()
+                if extra:
+                    if plan.get("additional_context"):
+                        plan["additional_context"] += "\n\n" + extra
+                    else:
+                        plan["additional_context"] = extra
+                    preview = extra[:100] + "..." if len(extra) > 100 else extra
+                    preview = preview.replace("\n", " ")
+                    print(_c(f"  ✓ Added: {preview}", "green"))
+            except (EOFError, KeyboardInterrupt):
+                pass
             return plan
 
         # ── quit ─────────────────────────────────────────────────────
