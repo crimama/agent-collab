@@ -17,15 +17,19 @@ _SYSTEM_PROMPT = (
 _PLAN_PROMPT = """\
 Break this development goal into 3-8 concrete, actionable subtasks.
 
-Assign each task to:
-- "claude": reasoning, analysis, architecture, code review, documentation
-- "codex":  code generation, tests, implementation, boilerplate
+CRITICAL: Balance task assignment between both agents based on task type:
+- "claude": reasoning, analysis, architecture, code review, refactoring, documentation, debugging complex logic
+- "codex":  code generation, boilerplate, tests, API implementations, data processing, quick fixes
+
+Use BOTH agents - assign implementation/coding tasks to "codex", analytical/review tasks to "claude".
 
 Goal: {goal}
 Working directory: {cwd}
 
-Output ONLY this JSON (no fences, no text before or after):
-{{"goal":"{goal_escaped}","summary":"one sentence","tasks":[{{"id":1,"title":"max 8 words","prompt":"detailed self-contained prompt","agent":"claude","depends_on":[],"parallel":false}}]}}"""
+Example output format (use BOTH agents):
+{{"goal":"Build REST API","summary":"Create FastAPI backend","tasks":[{{"id":1,"title":"Design API architecture","prompt":"Design REST API structure and endpoints","agent":"claude","depends_on":[],"parallel":false}},{{"id":2,"title":"Implement CRUD endpoints","prompt":"Generate FastAPI CRUD code","agent":"codex","depends_on":[1],"parallel":false}},{{"id":3,"title":"Write test suite","prompt":"Create pytest tests","agent":"codex","depends_on":[2],"parallel":false}},{{"id":4,"title":"Review and optimize","prompt":"Review code quality and suggest improvements","agent":"claude","depends_on":[3],"parallel":false}}]}}
+
+Output ONLY valid JSON (no fences, no text before or after):"""
 
 
 def _extract_json(text: str) -> str:
@@ -108,6 +112,16 @@ def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2) -> dict:
             t.setdefault("depends_on", [])
             t.setdefault("parallel", False)
             t.setdefault("prompt", "")
+
+        # Warn if all tasks assigned to same agent
+        agents = [t["agent"] for t in plan["tasks"]]
+        if len(set(agents)) == 1 and len(agents) > 1:
+            import sys
+            dominant = agents[0]
+            print(f"\n⚠️  Warning: All {len(agents)} tasks assigned to {dominant.upper()}.", file=sys.stderr)
+            print(f"   Consider reassigning some tasks in the plan editor.", file=sys.stderr)
+            print(f"   Use 'r <task_id> codex' or 'r <task_id> claude'\n", file=sys.stderr)
+
         return plan
 
     raise last_error  # all attempts failed

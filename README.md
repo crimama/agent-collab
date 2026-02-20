@@ -132,6 +132,21 @@ collab "기존 auth.py를 리팩토링하고 테스트 코드를 작성해줘"
 collab "CSV 데이터를 PostgreSQL에 적재하는 파이프라인 구현"
 ```
 
+### 에이전트 자동 배정
+
+플래너는 태스크 유형에 따라 적합한 에이전트를 자동으로 배정합니다:
+
+- **Claude**: 분석, 설계, 리뷰, 리팩토링, 문서화, 복잡한 디버깅
+- **Codex**: 코드 생성, 보일러플레이트, 테스트, API 구현, 데이터 처리
+
+모든 태스크가 한 에이전트로 배정되면 경고가 표시되며, 플랜 편집기에서 `r <n> <agent>` 명령어로 재배정할 수 있습니다.
+
+```
+⚠️  Warning: All 5 tasks assigned to CLAUDE.
+   Consider reassigning some tasks in the plan editor.
+   Use 'r <task_id> codex' or 'r <task_id> claude'
+```
+
 ### 실행 흐름
 
 ```
