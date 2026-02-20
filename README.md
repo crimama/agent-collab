@@ -186,6 +186,18 @@ collab "기존 auth.py를 리팩토링하고 테스트 코드를 작성해줘"
 collab "CSV 데이터를 PostgreSQL에 적재하는 파이프라인 구현"
 ```
 
+**💡 Tip:** Planning 중에 `Ctrl+C`로 언제든 취소 가능합니다.
+
+```bash
+⚙  Generating plan for: Build REST API
+⠋  Planning...
+^C
+✖ Planning cancelled by user (Ctrl+C)
+  Planning cancelled. Returning to prompt.
+
+▶    # REPL로 돌아옴
+```
+
 ### 에이전트 자동 배정
 
 플래너는 태스크 유형에 따라 적합한 에이전트를 자동으로 배정합니다:

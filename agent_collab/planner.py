@@ -56,26 +56,39 @@ def _extract_json(text: str) -> str:
 
 def _run_planner(goal: str, cwd: str) -> str:
     """Call `claude --print` with a neutral (temp) working dir to avoid project context."""
+    import signal
+
     prompt = _PLAN_PROMPT.format(
         goal=goal,
         cwd=cwd,
         goal_escaped=goal.replace('"', '\\"').replace("\n", " "),
     )
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        proc = subprocess.run(
-            [
-                "claude", "--print",
-                "--system-prompt", _SYSTEM_PROMPT,
-                "--output-format", "text",
-                "--permission-mode", "bypassPermissions",
-                "--no-session-persistence",
-                prompt,
-            ],
-            capture_output=True,
-            text=True,
-            cwd=tmpdir,   # neutral dir — no CLAUDE.md, no project context
-        )
-    return proc.stdout.strip()
+        try:
+            proc = subprocess.run(
+                [
+                    "claude", "--print",
+                    "--system-prompt", _SYSTEM_PROMPT,
+                    "--output-format", "text",
+                    "--permission-mode", "bypassPermissions",
+                    "--no-session-persistence",
+                    prompt,
+                ],
+                capture_output=True,
+                text=True,
+                cwd=tmpdir,   # neutral dir — no CLAUDE.md, no project context
+                timeout=120,  # 2 minute timeout
+            )
+            return proc.stdout.strip()
+        except KeyboardInterrupt:
+            import sys
+            print("\n\n" + "\033[91m" + "✖ Planning cancelled by user (Ctrl+C)" + "\033[0m", file=sys.stderr)
+            raise
+        except subprocess.TimeoutExpired:
+            import sys
+            print("\n\n" + "\033[91m" + "✖ Planning timed out (>2 minutes)" + "\033[0m", file=sys.stderr)
+            raise KeyboardInterrupt("Planning timeout")
 
 
 def _auto_detect_parallel_tasks(tasks: list) -> None:
@@ -111,7 +124,13 @@ def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2, auto_parallel
     last_error = None
 
     for attempt in range(1, max_retries + 2):  # attempts = max_retries + 1
-        raw = _run_planner(goal, cwd)
+        try:
+            raw = _run_planner(goal, cwd)
+        except KeyboardInterrupt:
+            # User cancelled - exit cleanly
+            import sys
+            print("\n  \033[93mPlanning cancelled. Returning to prompt.\033[0m\n", file=sys.stderr)
+            raise
         json_str = _extract_json(raw)
 
         if not json_str:

@@ -400,6 +400,12 @@ def run_goal(goal: str, cwd: str, claude: ClaudeAgent, codex: CodexAgent,
         spin_t.start()
     try:
         plan = generate_plan(goal, cwd)
+    except KeyboardInterrupt:
+        # User cancelled with Ctrl+C - return gracefully
+        done.set()
+        if spin_started:
+            spin_t.join(timeout=0.5)
+        return
     except Exception as e:
         done.set()
         if spin_started:
