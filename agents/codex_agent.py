@@ -13,14 +13,13 @@ class CodexAgent(BaseAgent):
     def __init__(self, extra_args: list[str] | None = None):
         self.extra_args = extra_args or []
 
-    def run(self, task: str, cwd: str = ".") -> AgentResult:
+    def run(self, task: str, cwd: str = ".", model: str | None = None) -> AgentResult:
         # codex exec <prompt> runs non-interactively
-        cmd = [
-            "codex",
-            "exec",
-            *self.extra_args,
-            task,
-        ]
+        cmd = ["codex", "exec"]
+        # Add model selection if specified
+        if model:
+            cmd.extend(["-c", f'model="{model}"'])
+        cmd.extend([*self.extra_args, task])
         start = time.time()
         try:
             proc = subprocess.run(

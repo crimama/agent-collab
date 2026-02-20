@@ -135,3 +135,10 @@ def load_session(session_id: str) -> Optional[Session]:
     if not p.exists():
         return None
     return Session.load(p)
+
+
+def list_research_sessions(limit: int = 10) -> list[Session]:
+    """Return recent research sessions only, sorted by updated_at descending."""
+    all_sessions = list_sessions(limit=50)  # Get more to filter
+    research_sessions = [s for s in all_sessions if s.type == "research"]
+    return research_sessions[:limit]

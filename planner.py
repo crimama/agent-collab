@@ -6,6 +6,8 @@ import re
 import subprocess
 import tempfile
 
+from model_selector import select_model_for_task
+
 # ── System prompt: override project CLAUDE.md context ─────────────────────────
 _SYSTEM_PROMPT = (
     "You are a JSON-only task planner. "
@@ -108,6 +110,8 @@ def generate_plan(goal: str, cwd: str = ".", max_retries: int = 2) -> dict:
             t.setdefault("depends_on", [])
             t.setdefault("parallel", False)
             t.setdefault("prompt", "")
+            # Auto-select appropriate model based on task complexity
+            t["model"] = select_model_for_task(t)
         return plan
 
     raise last_error  # all attempts failed

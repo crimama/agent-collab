@@ -9,6 +9,8 @@ import sys
 import textwrap
 from typing import Optional
 
+from agent_collab.model_selector import get_model_emoji, get_model_label, select_model_for_task
+
 # ─── Colors ───────────────────────────────────────────────────────────────────
 _USE_COLOR = sys.stdout.isatty()
 
@@ -75,7 +77,7 @@ def print_plan(plan: dict, verbose: bool = False) -> None:
     print()
 
     # Header
-    print(f"  {'#':>2}  {'Agent':8}  {'Title'}")
+    print(f"  {'#':>2}  {'Agent':8}  {'Model':10}  {'Title'}")
     print("  " + "─" * (width - 4))
 
     for t in tasks:
@@ -83,11 +85,22 @@ def print_plan(plan: dict, verbose: bool = False) -> None:
         agent = t["agent"]
         title = t["title"]
         badge = agent_badge(agent)
+
+        # Show model info for all tasks
+        model_str = ""
+        if "model" in t:
+            model = t["model"]
+            emoji = get_model_emoji(model)
+            label = get_model_label(model)
+            model_str = f"{emoji} {_c(label, 'dim'):8}"
+        else:
+            model_str = " " * 10
+
         dep_str = ""
         if t["depends_on"]:
             dep_str = _c(f"  (after {t['depends_on']})", "dim")
         par_str = _c("  ∥parallel", "yellow") if t.get("parallel") else ""
-        print(f"  {tid:>2}  {badge}  {title}{dep_str}{par_str}")
+        print(f"  {tid:>2}  {badge}  {model_str}  {title}{dep_str}{par_str}")
 
         if verbose:
             wrapped = textwrap.fill(t["prompt"], width=width - 8, initial_indent="        ", subsequent_indent="        ")
@@ -342,6 +355,8 @@ def edit_plan(plan: dict) -> Optional[dict]:
                 "depends_on": depends_on,
                 "parallel": False,
             }
+            # Auto-select model for all tasks
+            new_task["model"] = select_model_for_task(new_task)
             plan["tasks"].append(new_task)
             print(_c(f"✓ Task {new_task['id']} added", "green"))
             print_plan(plan, verbose=verbose)

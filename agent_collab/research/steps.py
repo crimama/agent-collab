@@ -88,6 +88,9 @@ RESEARCH GOAL: {goal}
 PREVIOUS ROUNDS CONTEXT:
 {round_context}
 
+RESEARCH MEMORY (Learnings from previous rounds):
+{memory_context}
+
 This is Round {round_num}. Perform a thorough Goal Understanding analysis.
 
 Provide:
@@ -112,6 +115,9 @@ GOAL UNDERSTANDING (Step 1):
 
 PREVIOUS ROUNDS:
 {round_context}
+
+RESEARCH MEMORY (Key learnings):
+{memory_context}
 
 Your analytical perspective: {perspective}
 
@@ -140,6 +146,9 @@ ROUND: {round_num}
 
 PROBLEM ANALYSIS:
 {step2_output}
+
+RESEARCH MEMORY (Avoid past mistakes, build on successes):
+{memory_context}
 
 Design a concrete experimental methodology:
 1. **Proposed Approach**: Describe the solution in detail
@@ -281,6 +290,7 @@ def step1_understand(state, current_round: RoundResult, claude, cwd: str) -> Ste
         _S1_UNDERSTAND.format(
             goal=state.goal, round_context=state.round_context(),
             round_num=current_round.round_num,
+            memory_context=state.memory.get_full_context(),
         ),
         cwd,
         _c("[CLAUDE]", "cyan", "bold") + _c(" Understanding goal", "dim")
@@ -288,6 +298,12 @@ def step1_understand(state, current_round: RoundResult, claude, cwd: str) -> Ste
     output = AgentOutput(agent="claude", role="understander",
                          output=res.output, duration_s=res.duration_s,
                          success=res.success, error=res.error)
+
+    # Extract learnings from output
+    state.memory.extract_learnings_from_output(
+        res.output, current_round.round_num, "Goal Understanding"
+    )
+
     return StepResult(step_id=1, step_name="Goal Understanding",
                       outputs=[output], synthesized=res.output,
                       duration_s=time.time() - t0)
@@ -296,12 +312,14 @@ def step1_understand(state, current_round: RoundResult, claude, cwd: str) -> Ste
 def step2_analyze(state, current_round: RoundResult, pool: ParallelPool, n_analysts: int = 2) -> StepResult:
     t0 = time.time()
     step1_out = current_round.steps.get("understand", StepResult(1, "")).primary_output()
+    memory_ctx = state.memory.get_full_context()
     tasks = [
         PoolTask(role=f"analyst-{i+1}", agent="claude",
                  prompt=_S2_ANALYZE.format(
                      goal=state.goal, round_num=current_round.round_num,
                      step1_output=step1_out, round_context=state.round_context(),
                      perspective=_S2_PERSPECTIVES[i % len(_S2_PERSPECTIVES)],
+                     memory_context=memory_ctx,
                  ))
         for i in range(n_analysts)
     ]
@@ -309,6 +327,13 @@ def step2_analyze(state, current_round: RoundResult, pool: ParallelPool, n_analy
     synthesized = next((o.output for o in reversed(outputs) if o.role == "synthesizer"), "")
     if not synthesized and outputs:
         synthesized = outputs[-1].output
+
+    # Extract learnings from all outputs
+    for output in outputs:
+        state.memory.extract_learnings_from_output(
+            output.output, current_round.round_num, "Problem Analysis"
+        )
+
     return StepResult(step_id=2, step_name="Problem Analysis",
                       outputs=outputs, synthesized=synthesized,
                       duration_s=time.time() - t0)
@@ -322,6 +347,7 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
         claude,
         _S3_PLAN.format(
             goal=state.goal, round_num=current_round.round_num, step2_output=step2_out,
+            memory_context=state.memory.get_full_context(),
         ),
         cwd,
         _c("[CLAUDE]", "cyan", "bold") + _c(" Designing methodology", "dim")
@@ -341,6 +367,16 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
                    *impl_outputs]
     combined = f"[PLAN]\n{plan_output}\n\n" + "\n\n".join(
         f"[IMPLEMENTATION-{i+1}]\n{o.output}" for i, o in enumerate(impl_outputs))
+
+    # Extract learnings
+    state.memory.extract_learnings_from_output(
+        plan_output, current_round.round_num, "Methodology Planning"
+    )
+    for output in impl_outputs:
+        state.memory.extract_learnings_from_output(
+            output.output, current_round.round_num, "Implementation"
+        )
+
     return StepResult(step_id=3, step_name="Methodology & Implementation",
                       outputs=all_outputs, synthesized=combined,
                       duration_s=time.time() - t0)
@@ -445,6 +481,18 @@ EXIT_CODE: {progress.exit_code}
             # Regular short experiment, use output as-is
             final_outputs.append(output)
 
+    # Extract learnings from experiment outputs
+    for output in final_outputs:
+        state.memory.extract_learnings_from_output(
+            output.output, current_round.round_num, "Experiment"
+        )
+        # Specifically check for failures
+        if not output.success or "FAILED" in output.output.upper():
+            state.memory.add_failure(
+                current_round.round_num, "Experiment",
+                f"Experiment {output.role} failed", output.output[:300]
+            )
+
     return StepResult(step_id=4, step_name="Experiment Execution",
                       outputs=final_outputs,
                       synthesized="\n\n".join(o.output for o in final_outputs),
@@ -468,6 +516,12 @@ def step5_results(state, current_round: RoundResult, claude, cwd: str = ".") -> 
     )
     output = AgentOutput(agent="claude", role="result-analyst",
                          output=res.output, duration_s=res.duration_s, success=res.success)
+
+    # Extract learnings - results often contain key insights
+    state.memory.extract_learnings_from_output(
+        res.output, current_round.round_num, "Result Analysis"
+    )
+
     return StepResult(step_id=5, step_name="Result Analysis",
                       outputs=[output], synthesized=res.output,
                       duration_s=time.time() - t0)
@@ -499,8 +553,15 @@ def step6_conclusion(state, current_round: RoundResult, total_rounds: int,
             current_round.conclusion = res.output
     else:
         current_round.conclusion = res.output
+
     output = AgentOutput(agent="claude", role="concluder",
                          output=res.output, duration_s=res.duration_s, success=res.success)
+
+    # Extract learnings from conclusion
+    state.memory.extract_learnings_from_output(
+        res.output, current_round.round_num, "Conclusion"
+    )
+
     return StepResult(step_id=6, step_name="Conclusion",
                       outputs=[output], synthesized=res.output,
                       duration_s=time.time() - t0)

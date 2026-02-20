@@ -81,7 +81,8 @@ class BackgroundMonitor:
         log_file: Optional[str] = None,
         patterns: Optional[CompletionPattern] = None,
         progress_callback: Optional[Callable[[TaskProgress], None]] = None,
-        poll_interval: int = 30,
+        poll_interval: int = 5,  # Changed from 30 to 5 for faster updates
+        show_log_updates: bool = True,
     ):
         """
         Args:
@@ -92,6 +93,7 @@ class BackgroundMonitor:
             patterns: Completion detection patterns
             progress_callback: Called periodically with progress updates
             poll_interval: Seconds between log checks
+            show_log_updates: If True, periodically show recent log lines
         """
         self.task_id = task_id
         self.command = command
@@ -100,12 +102,14 @@ class BackgroundMonitor:
         self.patterns = patterns or DEFAULT_PATTERNS
         self.progress_callback = progress_callback
         self.poll_interval = poll_interval
+        self.show_log_updates = show_log_updates
 
         self.process: Optional[subprocess.Popen] = None
         self.progress = TaskProgress(task_id=task_id, started_at=time.time(), last_update=time.time())
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_flag = threading.Event()
         self._log_position = 0
+        self._last_log_display = 0  # Track when we last showed log tail
 
     def start(self) -> None:
         """Start the background process and monitoring."""
@@ -151,6 +155,14 @@ class BackgroundMonitor:
                 self.progress.status = "failed"
                 self.progress.error_message = f"Process exited with code {self.process.returncode}"
 
+        # Show final log summary and tail
+        if self.log_file:
+            log_path = self.cwd / self.log_file
+            if log_path.exists():
+                print_log_summary(log_path)
+                print(_c("\n  📝 Final Log Output:", "cyan", "bold"))
+                show_log_tail(log_path, lines=15, filter_important=True)
+
         return self.progress
 
     def stop(self) -> None:
@@ -189,6 +201,15 @@ class BackgroundMonitor:
             # Notify callback
             if self.progress_callback:
                 self.progress_callback(self.progress)
+
+            # Periodically show log summary (every 60 seconds)
+            if self.show_log_updates and self.log_file:
+                current_time = time.time()
+                if current_time - self._last_log_display >= 60:
+                    self._last_log_display = current_time
+                    log_path = self.cwd / self.log_file
+                    if log_path.exists():
+                        print_log_summary(log_path)
 
             time.sleep(self.poll_interval)
 
@@ -363,6 +384,198 @@ def _format_duration(seconds: float) -> str:
         return f"{hours}h {minutes}m"
 
 
+def show_log_tail(
+    log_path: Path,
+    lines: int = 20,
+    filter_important: bool = True,
+    colorize: bool = True
+) -> None:
+    """
+    Display the last N lines of a log file with optional filtering and coloring.
+
+    Args:
+        log_path: Path to log file
+        lines: Number of lines to show
+        filter_important: If True, only show lines with important info
+        colorize: If True, add color coding
+    """
+    if not log_path.exists():
+        print(_c(f"  ⚠️  Log file not found: {log_path}", "yellow"))
+        return
+
+    try:
+        with open(log_path, "r") as f:
+            all_lines = f.readlines()
+
+        # Get last N lines
+        tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+
+        if filter_important:
+            # Filter for important lines
+            important_lines = []
+            for line in tail_lines:
+                line_lower = line.lower()
+                # Keep lines with: epoch, loss, metrics, errors, warnings, completion
+                if any(keyword in line_lower for keyword in [
+                    'epoch', 'loss', 'auc', 'accuracy', 'error', 'warning',
+                    'completed', 'failed', 'metric', 'pixel ap', 'image auc'
+                ]):
+                    important_lines.append(line)
+
+            # If filtering removes everything, show all
+            if important_lines:
+                tail_lines = important_lines
+            else:
+                tail_lines = tail_lines[-10:]  # Show last 10 at least
+
+        print(_c(f"\n  📄 Recent Log (last {len(tail_lines)} lines):", "cyan", "bold"))
+        print(_c("  " + "─" * 60, "dim"))
+
+        for line in tail_lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Colorize based on content
+            if colorize:
+                line_lower = line.lower()
+                if 'error' in line_lower or 'exception' in line_lower or 'failed' in line_lower:
+                    print(_c(f"  {line}", "red"))
+                elif 'warning' in line_lower:
+                    print(_c(f"  {line}", "yellow"))
+                elif 'completed' in line_lower or 'success' in line_lower:
+                    print(_c(f"  {line}", "green"))
+                elif 'epoch' in line_lower:
+                    print(_c(f"  {line}", "cyan"))
+                else:
+                    print(f"  {line}")
+            else:
+                print(f"  {line}")
+
+        print(_c("  " + "─" * 60, "dim"))
+
+    except Exception as e:
+        print(_c(f"  ⚠️  Error reading log: {e}", "yellow"))
+
+
+def get_log_summary(log_path: Path) -> Dict[str, Any]:
+    """
+    Extract a summary of key information from the log file.
+
+    Returns dict with: current_epoch, total_epochs, latest_metrics, errors, status
+    """
+    summary = {
+        "current_epoch": None,
+        "total_epochs": None,
+        "latest_metrics": {},
+        "errors": [],
+        "warnings": [],
+        "status": "running"
+    }
+
+    if not log_path.exists():
+        return summary
+
+    try:
+        with open(log_path, "r") as f:
+            lines = f.readlines()
+
+        # Analyze last 100 lines for recent status
+        recent_lines = lines[-100:] if len(lines) > 100 else lines
+
+        for line in recent_lines:
+            line = line.strip()
+
+            # Parse epoch
+            epoch_match = re.search(r'epoch[:\s]*(\d+)\s*/\s*(\d+)', line, re.IGNORECASE)
+            if epoch_match:
+                summary["current_epoch"] = int(epoch_match.group(1))
+                summary["total_epochs"] = int(epoch_match.group(2))
+
+            # Parse metrics
+            metric_patterns = [
+                (r'loss[:\s]+([\d.]+)', 'loss'),
+                (r'auc[:\s=]+([\d.]+)', 'auc'),
+                (r'pixel\s*ap[:\s]+([\d.]+)', 'pixel_ap'),
+                (r'image\s*auc[:\s]+([\d.]+)', 'image_auc'),
+                (r'accuracy[:\s]+([\d.]+)', 'accuracy'),
+            ]
+
+            for pattern, metric_name in metric_patterns:
+                match = re.search(pattern, line, re.IGNORECASE)
+                if match:
+                    try:
+                        value = float(match.group(1))
+                        if value > 1.0 and metric_name != 'loss':
+                            value = value / 100.0
+                        summary["latest_metrics"][metric_name] = value
+                    except ValueError:
+                        pass
+
+            # Detect errors
+            if re.search(r'error:|exception:', line, re.IGNORECASE):
+                if len(summary["errors"]) < 3:  # Keep last 3 errors
+                    summary["errors"].append(line[:150])
+
+            # Detect warnings
+            if 'warning' in line.lower():
+                if len(summary["warnings"]) < 3:
+                    summary["warnings"].append(line[:150])
+
+            # Check completion
+            if re.search(r'(?i)training\s+completed|experiment\s+(?:finished|completed)', line):
+                summary["status"] = "completed"
+            elif re.search(r'(?i)failed|error:', line):
+                summary["status"] = "failed"
+
+        return summary
+
+    except Exception as e:
+        summary["errors"] = [f"Failed to read log: {e}"]
+        return summary
+
+
+def print_log_summary(log_path: Path) -> None:
+    """Print a concise summary of the log file."""
+    summary = get_log_summary(log_path)
+
+    print(_c(f"\n  📊 Experiment Summary:", "cyan", "bold"))
+    print(_c("  " + "─" * 60, "dim"))
+
+    # Status
+    status_color = "green" if summary["status"] == "completed" else "yellow" if summary["status"] == "running" else "red"
+    print(_c(f"  Status: {summary['status'].upper()}", status_color, "bold"))
+
+    # Progress
+    if summary["current_epoch"] and summary["total_epochs"]:
+        progress = (summary["current_epoch"] / summary["total_epochs"]) * 100
+        print(_c(f"  Progress: Epoch {summary['current_epoch']}/{summary['total_epochs']} ({progress:.0f}%)", "cyan"))
+
+    # Metrics
+    if summary["latest_metrics"]:
+        print(_c(f"\n  Latest Metrics:", "bold"))
+        for metric, value in summary["latest_metrics"].items():
+            if metric == 'loss':
+                print(_c(f"    • {metric}: {value:.4f}", "dim"))
+            else:
+                print(_c(f"    • {metric}: {value:.2%}", "dim"))
+
+    # Errors
+    if summary["errors"]:
+        print(_c(f"\n  ⚠️  Errors ({len(summary['errors'])}):", "red", "bold"))
+        for err in summary["errors"]:
+            print(_c(f"    • {err}", "red", "dim"))
+
+    # Warnings
+    if summary["warnings"]:
+        print(_c(f"\n  ⚠️  Warnings ({len(summary['warnings'])}):", "yellow"))
+        for warn in summary["warnings"]:
+            print(_c(f"    • {warn}", "yellow", "dim"))
+
+    print(_c("  " + "─" * 60, "dim"))
+    print()
+
+
 def run_background_task(
     task_id: str,
     command: str,
@@ -370,6 +583,7 @@ def run_background_task(
     log_file: Optional[str] = None,
     patterns: Optional[CompletionPattern] = None,
     wait: bool = True,
+    show_log_updates: bool = True,
 ) -> TaskProgress:
     """
     Run a command in the background and monitor its progress.
@@ -381,6 +595,7 @@ def run_background_task(
         log_file: Log file path relative to cwd
         patterns: Completion detection patterns
         wait: If True, block until completion; if False, return immediately
+        show_log_updates: If True, show periodic log summaries
 
     Returns:
         TaskProgress with final status
@@ -391,6 +606,7 @@ def run_background_task(
         cwd=cwd,
         log_file=log_file,
         patterns=patterns,
+        show_log_updates=show_log_updates,
     )
 
     monitor.start()

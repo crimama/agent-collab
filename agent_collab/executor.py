@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 
 from agent_collab.agents import ClaudeAgent, CodexAgent
 from agent_collab.agents.base import AgentResult
+from model_selector import get_model_emoji, get_model_label
 
 # ─── Colors ───────────────────────────────────────────────────────────────────
 _USE_COLOR = sys.stdout.isatty()
@@ -95,17 +96,25 @@ def _run_task_with_spinner(
     full_prompt = context_prefix + task["prompt"]
     done = threading.Event()
 
+    # Show model in spinner for all tasks
+    model_info = ""
+    if "model" in task:
+        model = task["model"]
+        emoji = get_model_emoji(model)
+        label = get_model_label(model)
+        model_info = f" {emoji}{label}"
+
     def _spin():
         i = 0
         label = _c(agent.name.upper(), "cyan" if agent.name == "claude" else "green")
         while not done.is_set():
             sys.stderr.write(
-                f"\r  {SPINNER[i % len(SPINNER)]}  [{label}] {task['title']} ..."
+                f"\r  {SPINNER[i % len(SPINNER)]}  [{label}{model_info}] {task['title']} ..."
             )
             sys.stderr.flush()
             time.sleep(0.12)
             i += 1
-        sys.stderr.write("\r" + " " * 70 + "\r")
+        sys.stderr.write("\r" + " " * 80 + "\r")
         sys.stderr.flush()
 
     spin_t = threading.Thread(target=_spin, daemon=True)
@@ -113,7 +122,9 @@ def _run_task_with_spinner(
     if spin_started:
         spin_t.start()
 
-    result = agent.run(full_prompt, cwd=cwd)
+    # Pass model to agent.run for all tasks
+    model = task.get("model")
+    result = agent.run(full_prompt, cwd=cwd, model=model)
     done.set()
     if spin_started:
         spin_t.join(timeout=0.5)
@@ -260,7 +271,15 @@ def _print_result(task: dict, result: AgentResult, done: int, total: int) -> Non
         border_char = "─"
         side_char = "│"
 
-    badge  = _c(f"{icon} {agent.upper()}", color, "bold")
+    # Build badge with model info for all tasks
+    badge_text = f"{icon} {agent.upper()}"
+    if "model" in task:
+        model = task["model"]
+        emoji = get_model_emoji(model)
+        label = get_model_label(model)
+        badge_text += f" {emoji}{label}"
+
+    badge  = _c(badge_text, color, "bold")
     prog   = _c(f"[{done}/{total}]", "dim")
     t_str  = _c(f"{result.duration_s:.1f}s", "dim")
     title  = task["title"]
@@ -272,7 +291,8 @@ def _print_result(task: dict, result: AgentResult, done: int, total: int) -> Non
 
     # Title line
     title_line = f"  {side_char} {status} {badge}  {title}"
-    padding = width - len(f"{status} {icon} {agent.upper()}  {title}") + 8  # +8 for ANSI codes
+    # Calculate padding considering badge_text length
+    padding = width - len(f"{status} {badge_text}  {title}") + 8  # +8 for ANSI codes
     print(title_line + " " * max(0, padding) + _c(side_char, color))
 
     # Metadata line

@@ -963,6 +963,70 @@ def run_resume(argv: list[str], claude: ClaudeAgent, codex: CodexAgent) -> None:
         ])
 
 
+# ─── Log check subcommand ─────────────────────────────────────────────────────
+def run_log_check(args: list[str]) -> None:
+    """Check experiment logs - shortcut for research/check_log.py"""
+    from agent_collab.research.monitor import show_log_tail, print_log_summary
+    from pathlib import Path
+
+    if not args or args[0] in ("-h", "--help"):
+        print(_c("\nUsage: collab log <log_file> [options]", "bold"))
+        print("\nQuickly check experiment logs")
+        print("\nOptions:")
+        print("  -t, --tail N     Show last N lines (filtered for important info)")
+        print("  -f, --full       Show all lines (unfiltered)")
+        print("  --no-filter      Don't filter tail output")
+        print("  --no-color       Disable colors")
+        print("\nExamples:")
+        print(_c("  collab log logs/exp1/training.log", "dim"))
+        print(_c("  collab log logs/exp1/training.log -t 50", "dim"))
+        print(_c("  collab log logs/exp1/training.log --full", "dim"))
+        print()
+        return
+
+    log_file = args[0]
+    log_path = Path(log_file)
+
+    if not log_path.exists():
+        print(_c(f"Error: Log file not found: {log_path}", "red"))
+        return
+
+    # Parse options
+    show_tail = False
+    tail_lines = 20
+    filter_important = True
+    colorize = True
+
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-t", "--tail"):
+            show_tail = True
+            if i + 1 < len(args) and args[i + 1].isdigit():
+                tail_lines = int(args[i + 1])
+                i += 1
+        elif arg in ("-f", "--full"):
+            # Show full file
+            try:
+                with open(log_path, "r") as f:
+                    print(f.read())
+            except Exception as e:
+                print(_c(f"Error reading log: {e}", "red"))
+            return
+        elif arg == "--no-filter":
+            filter_important = False
+        elif arg == "--no-color":
+            colorize = False
+        i += 1
+
+    if show_tail:
+        show_log_tail(log_path, lines=tail_lines, filter_important=filter_important, colorize=colorize)
+    else:
+        # Default: show summary
+        print_log_summary(log_path)
+        print(_c("\n💡 Tip: Use 'collab log <file> -t N' to see last N lines", "dim"))
+
+
 # ─── Sessions list subcommand ─────────────────────────────────────────────────
 def run_sessions() -> None:
     from agent_collab.session_store import list_sessions
@@ -994,6 +1058,10 @@ def main(argv: list[str] | None = None) -> None:
         run_sessions()
         return
 
+    if argv and argv[0] == "log":
+        run_log_check(argv[1:])
+        return
+
     parser = argparse.ArgumentParser(
         prog="collab",
         description="Claude Code + Codex CLI orchestrator\n\n"
@@ -1006,6 +1074,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--codex",       action="store_true", help="Force Codex CLI")
     parser.add_argument("--parallel",    action="store_true", help="Run both agents simultaneously")
     parser.add_argument("--plan-only",   action="store_true", help="Generate plan without executing")
+    parser.add_argument("--resume",      nargs="?", const="PICKER", default=None,
+                       help="Resume a session (shows picker if no session-id given)")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive REPL mode (default if no goal)")
     parser.add_argument("--cwd",         default=".", help="Working directory for agents")
     parser.add_argument("--verbose",     "-v", action="store_true")
@@ -1015,8 +1085,19 @@ def main(argv: list[str] | None = None) -> None:
     claude, codex = build_agents(cfg)
     cwd = os.path.abspath(args.cwd)
 
+    # Handle special "resume" command (legacy syntax)
     if argv and argv[0] == "resume":
         run_resume(argv[1:], claude, codex)
+        return
+
+    # Handle --resume flag
+    if args.resume is not None:
+        if args.resume == "PICKER":
+            # Show interactive picker
+            run_resume([], claude, codex)
+        else:
+            # Resume specific session
+            run_resume([args.resume], claude, codex)
         return
 
     # Default to interactive mode if no goal provided

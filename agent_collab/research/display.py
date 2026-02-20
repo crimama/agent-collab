@@ -27,13 +27,17 @@ def _c(text: str, *styles: str) -> str:
     return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
 
 
-def print_session_header(goal: str, total_rounds: int) -> None:
+def print_session_header(goal: str, total_rounds: int, interactive: bool = False) -> None:
     import textwrap
     w = 72
     print()
     print(_c("╔" + "═" * (w - 2) + "╗", "magenta", "bold"))
-    print(_c("║", "magenta") + _c("  AI RESEARCH MODE", "bold") +
-          _c(f"  —  {total_rounds} round(s)", "dim") + " " * (w - 22 - len(str(total_rounds))) + _c("║", "magenta"))
+
+    # Title line with round count
+    mode_str = " [INTERACTIVE]" if interactive else ""
+    title = f"  AI RESEARCH MODE — {total_rounds} Round(s){mode_str}"
+    padding = w - 2 - len(f"  AI RESEARCH MODE — {total_rounds} Round(s){mode_str}")
+    print(_c("║", "magenta") + _c(title, "bold") + " " * padding + _c("║", "magenta"))
 
     # Wrap long goal text
     goal_prefix = "  Goal: "

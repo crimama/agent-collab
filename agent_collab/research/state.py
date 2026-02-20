@@ -7,6 +7,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
+from agent_collab.research.memory import ResearchMemory
+
 
 @dataclass
 class AgentOutput:
@@ -50,6 +52,7 @@ class ResearchState:
         self.rounds: list[RoundResult] = []
         self.session_dir = Path(session_dir)
         self.created_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.memory = ResearchMemory.load(Path(session_dir), goal=goal)
 
     def round_context(self, max_rounds: int = 3) -> str:
         if not self.rounds:
@@ -87,13 +90,18 @@ class ResearchState:
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
+
+        # Save memory separately
+        self.memory.save(self.session_dir)
+
         return path
 
     @classmethod
     def load(cls, path: str) -> "ResearchState":
         with open(path) as f:
             data = json.load(f)
-        state = cls(goal=data["goal"])
+        session_dir = Path(path).parent
+        state = cls(goal=data["goal"], session_dir=str(session_dir))
         state.created_at = data.get("created_at", "")
         for r_data in data.get("rounds", []):
             steps = {}
