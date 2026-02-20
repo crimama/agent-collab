@@ -366,6 +366,8 @@ _HELP_COMMANDS = [
     ("/status",   "/s", "Show session info (cwd, context, tokens)"),
     ("/compact",         "Toggle compact output mode (25-line preview)"),
     ("/copy",            "Copy last agent output to clipboard"),
+    ("/files <pattern>", "Find files matching pattern"),
+    ("@?<pattern>",      "Quick file search (alias for /files)"),
     ("",                 ""),
     ("/claude <task>",   "Force Claude Code for this task"),
     ("/codex <task>",    "Force Codex CLI for this task"),
@@ -501,6 +503,82 @@ def _run_agent_repl(agent, task: str, cwd: str, ctx: _ReplCtx) -> None:
     ctx.push(raw_task, result.output)
 
 
+def _show_file_candidates(pattern: str, cwd: str) -> None:
+    """Show file candidates matching the pattern."""
+    from agent_collab.file_ref import list_file_candidates
+    import os
+
+    if not pattern:
+        print(_c("  📁 File Search", "cyan", "bold"))
+        print(_c("  Usage: /files <pattern>  or  @?<pattern>", "dim"))
+        print(_c("  Examples:", "dim"))
+        print(_c("    /files auth       → find files with 'auth' in name", "dim"))
+        print(_c("    @?test           → find test files", "dim"))
+        print(_c("    /files *.py      → find all Python files", "dim"))
+        print()
+        return
+
+    candidates = list_file_candidates(pattern, cwd)
+
+    if not candidates:
+        print(_c(f"  ✖ No files found matching '{pattern}'", "red"))
+        return
+
+    print(_c(f"  📁 Found {len(candidates)} file(s) matching '{pattern}':", "cyan", "bold"))
+    print()
+
+    # Group by directory
+    by_dir: dict[str, list[str]] = {}
+    for path in candidates:
+        dirname = os.path.dirname(path) or "."
+        if dirname not in by_dir:
+            by_dir[dirname] = []
+        by_dir[dirname].append(os.path.basename(path))
+
+    # Sort directories
+    for dirname in sorted(by_dir.keys()):
+        files = by_dir[dirname]
+        dir_display = _c(f"{dirname}/", "blue", "bold") if dirname != "." else _c("./", "blue", "bold")
+        print(f"  {dir_display}")
+
+        for filename in sorted(files):
+            # Highlight the pattern in filename
+            if pattern and pattern != "*":
+                idx = filename.lower().find(pattern.lower())
+                if idx != -1:
+                    before = filename[:idx]
+                    match = filename[idx:idx+len(pattern)]
+                    after = filename[idx+len(pattern):]
+                    display = before + _c(match, "yellow", "bold") + after
+                else:
+                    display = filename
+            else:
+                display = filename
+
+            full_path = os.path.join(dirname, filename)
+            # Show file size
+            try:
+                size = os.path.getsize(os.path.join(cwd, full_path))
+                if size < 1024:
+                    size_str = f"{size}B"
+                elif size < 1024 * 1024:
+                    size_str = f"{size/1024:.1f}KB"
+                else:
+                    size_str = f"{size/(1024*1024):.1f}MB"
+                size_display = _c(f"({size_str})", "dim")
+            except:
+                size_display = ""
+
+            # Show reference syntax
+            ref = _c(f"@{filename}", "green") if dirname == "." else _c(f"{full_path}", "green")
+            print(f"    {display:40} {size_display:12} → {ref}")
+
+        print()
+
+    print(_c(f"  💡 Use @filename or /path to reference files in your prompt", "dim"))
+    print()
+
+
 def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     _setup_file_completion(cwd)
     ctx = _ReplCtx()
@@ -514,7 +592,11 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     print(
         "  " + _c("/path/to/file.py", "yellow") + " or " +
         _c("@filename.py", "yellow") + _c("  attach files", "dim") +
-        "   │   " + _c('"""', "yellow") + _c("  multi-line input", "dim")
+        "   │   " + _c("@?pattern", "yellow") + _c("  find files", "dim")
+    )
+    print(
+        "  " + _c('"""', "yellow") + _c("  multi-line input", "dim") +
+        "   │   " + _c("/help", "yellow") + _c("  show commands", "dim")
     )
     print()
 
@@ -581,6 +663,16 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
 
         elif raw.startswith("/plan "):
             run_goal(raw[6:].strip(), cwd, claude, codex, plan_only=True)
+
+        elif raw.startswith("/files"):
+            # Show file candidates
+            pattern = raw[6:].strip() if len(raw) > 6 else ""
+            _show_file_candidates(pattern, cwd)
+
+        elif raw.startswith("@?") or raw.startswith("/?"):
+            # Quick file lookup: @?pattern or /?pattern
+            pattern = raw[2:].strip()
+            _show_file_candidates(pattern, cwd)
 
         elif raw.startswith("/"):
             print(_c(f"  Unknown command '{raw.split()[0]}'. Type /help for a list.", "red"))

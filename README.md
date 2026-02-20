@@ -97,7 +97,38 @@ collab research "Improve @lora.py performance"
   📎 2 file(s) attached: auth.py, test_auth.py
 ```
 
-### REPL에서 Tab 자동완성
+### 파일 검색 및 자동완성
+
+#### 1. 파일 후보군 보기
+
+`@?<pattern>` 또는 `/files <pattern>` 명령어로 파일 후보군을 조회:
+
+```bash
+# REPL에서
+▶ @?auth
+
+  📁 Found 3 file(s) matching 'auth':
+
+  ./
+    auth.py                                  (2.3KB)       → @auth.py
+    auth_test.py                             (1.1KB)       → @auth_test.py
+
+  src/
+    auth_handler.py                          (5.4KB)       → src/auth_handler.py
+
+  💡 Use @filename or /path to reference files in your prompt
+
+# 패턴 없이 실행하면 사용법 표시
+▶ @?
+  📁 File Search
+  Usage: /files <pattern>  or  @?<pattern>
+  Examples:
+    /files auth       → find files with 'auth' in name
+    @?test           → find test files
+    /files *.py      → find all Python files
+```
+
+#### 2. Tab 자동완성
 
 `collab -i` 대화형 모드에서 `/path` 및 `@name` 입력 후 `Tab`으로 자동완성합니다.
 
@@ -370,6 +401,8 @@ REPL은 대화 히스토리를 기억하며, 이전 대화 컨텍스트를 자�
 | `/status` (`/s`) | 세션 상태 (cwd, 히스토리 수, 토큰 추정치) |
 | `/compact` | 출력 압축 모드 토글 (25줄 미리보기) |
 | `/copy` | 마지막 에이전트 출력을 클립보드에 복사 |
+| `/files <pattern>` | 패턴과 일치하는 파일 찾기 |
+| `@?<pattern>` | 파일 빠른 검색 (`/files`의 단축 명령어) |
 | `/quit` | 종료 |
 
 #### 기타 UX 기능

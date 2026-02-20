@@ -31,6 +31,77 @@ _EXT_LANG: dict[str, str] = {
 }
 
 MAX_FILE_BYTES = 32_000   # ~8k tokens per file
+MAX_CANDIDATES = 20       # max file candidates to show
+
+
+def list_file_candidates(pattern: str, cwd: str = ".") -> list[str]:
+    """
+    List file candidates matching a pattern.
+
+    Args:
+        pattern: Search pattern (e.g., "auth", "*.py", "src/")
+        cwd: Working directory to search from
+
+    Returns:
+        List of matching file paths (relative to cwd)
+    """
+    import os
+    matches = []
+
+    # If pattern is empty or just "*", show common code files
+    if not pattern or pattern == "*":
+        pattern = "*"
+        exts = [".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".cpp", ".c", ".h"]
+    else:
+        exts = None
+
+    # Search recursively
+    for root, dirs, files in os.walk(cwd):
+        # Skip hidden directories and common ignore paths
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "__pycache__", "venv", "env", ".git")]
+
+        for filename in files:
+            # Skip hidden files
+            if filename.startswith("."):
+                continue
+
+            # Check extension filter
+            if exts and not any(filename.endswith(ext) for ext in exts):
+                continue
+
+            # Check pattern match (case-insensitive substring)
+            if pattern != "*" and pattern.lower() not in filename.lower():
+                # Also check if pattern matches path
+                rel_path = os.path.relpath(os.path.join(root, filename), cwd)
+                if pattern.lower() not in rel_path.lower():
+                    continue
+
+            rel_path = os.path.relpath(os.path.join(root, filename), cwd)
+            matches.append(rel_path)
+
+            if len(matches) >= MAX_CANDIDATES * 2:  # Early exit if too many
+                break
+
+        if len(matches) >= MAX_CANDIDATES * 2:
+            break
+
+    # Sort by: 1) exact filename match, 2) starts with pattern, 3) alphabetical
+    def sort_key(path):
+        filename = os.path.basename(path)
+        lower_name = filename.lower()
+        lower_pattern = pattern.lower()
+
+        if lower_name == lower_pattern:
+            return (0, path)
+        elif lower_name.startswith(lower_pattern):
+            return (1, path)
+        elif lower_pattern in lower_name:
+            return (2, path)
+        else:
+            return (3, path)
+
+    matches.sort(key=sort_key)
+    return matches[:MAX_CANDIDATES]
 
 
 def _find_by_name(name: str, cwd: str) -> Optional[str]:
