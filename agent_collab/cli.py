@@ -480,6 +480,7 @@ _HELP_COMMANDS = [
     ("/codex <task>",    "Force Codex CLI for this task"),
     ("/parallel <t>",   "Run both agents + critic simultaneously"),
     ("/plan <goal>",     "Generate plan without executing"),
+    ("/research <goal>", "AI research mode (6-step iterative loop)"),
     ("/quit",            "Exit"),
 ]
 
@@ -507,6 +508,8 @@ def _print_help() -> None:
         ("/codex <task>", "Use Codex for quick code generation"),
         ("/parallel <task>", "Run both agents + get critic review"),
         ("/plan <goal>", "Generate execution plan (preview only)"),
+        ("/research <goal>", "AI research mode (6-step iterative loop)"),
+        ("research <goal>", "Same as /research (keyword shortcut)"),
     ]:
         print(_c(f"     {cmd:20}", "yellow") + _c(f"  {desc}", "dim"))
     print()
@@ -769,6 +772,7 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     print(_c("     ▶ ", "dim") + _c("Build a REST API with authentication", "green"))
     print(_c("     ▶ ", "dim") + _c("Review @main.py and suggest improvements", "green"))
     print(_c("     ▶ ", "dim") + _c("/claude Explain how this codebase works", "green"))
+    print(_c("     ▶ ", "dim") + _c("research Improve Pixel AP by 5%", "green") + _c(" (AI research mode)", "dim"))
     print()
 
     # Feature Highlights
@@ -850,6 +854,11 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
         elif raw.startswith("/plan "):
             run_goal(raw[6:].strip(), cwd, claude, codex, plan_only=True)
 
+        elif raw.startswith("/research "):
+            # /research "goal" → research mode
+            goal = raw[10:].strip()
+            run_research([goal, "--cwd", cwd])
+
         elif raw.startswith("/files"):
             # Show file candidates
             pattern = raw[6:].strip() if len(raw) > 6 else ""
@@ -866,6 +875,12 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
             print(_c(f"  💡 Tip: Type /help to see all available commands", "yellow"))
             print(_c(f"  💡 Or just describe what you want without a /command prefix!", "yellow"))
             print()
+
+        # ── Research mode (keyword-based) ──────────────────────────────────
+        elif raw.lower().startswith("research "):
+            # research "goal" → research mode (without slash)
+            goal = raw[9:].strip()
+            run_research([goal, "--cwd", cwd])
 
         # ── Goal → Plan → Execute ──────────────────────────────────────────
         else:
