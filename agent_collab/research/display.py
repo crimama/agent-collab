@@ -28,13 +28,31 @@ def _c(text: str, *styles: str) -> str:
 
 
 def print_session_header(goal: str, total_rounds: int) -> None:
+    import textwrap
     w = 72
     print()
     print(_c("╔" + "═" * (w - 2) + "╗", "magenta", "bold"))
     print(_c("║", "magenta") + _c("  AI RESEARCH MODE", "bold") +
           _c(f"  —  {total_rounds} round(s)", "dim") + " " * (w - 22 - len(str(total_rounds))) + _c("║", "magenta"))
-    goal_line = f"  Goal: {goal[:w-10]}"
-    print(_c("║", "magenta") + goal_line.ljust(w - 2) + _c("║", "magenta"))
+
+    # Wrap long goal text
+    goal_prefix = "  Goal: "
+    goal_width = w - 6  # Leave space for "║  " on both sides
+    if len(goal) <= goal_width - len(goal_prefix):
+        # Short goal - single line
+        goal_line = goal_prefix + goal
+        print(_c("║", "magenta") + goal_line.ljust(w - 2) + _c("║", "magenta"))
+    else:
+        # Long goal - wrap into multiple lines
+        wrapped = textwrap.wrap(goal, width=goal_width - len(goal_prefix))
+        # First line with prefix
+        first_line = goal_prefix + wrapped[0]
+        print(_c("║", "magenta") + first_line.ljust(w - 2) + _c("║", "magenta"))
+        # Remaining lines with indent
+        for line in wrapped[1:]:
+            indented = "        " + line  # 8 spaces to align with "Goal: "
+            print(_c("║", "magenta") + indented.ljust(w - 2) + _c("║", "magenta"))
+
     print(_c("╚" + "═" * (w - 2) + "╝", "magenta", "bold"))
     print()
 

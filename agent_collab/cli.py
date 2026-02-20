@@ -212,8 +212,10 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
     Supports interactive file selection with @pattern?.
     End multi-line mode with \"\"\" on its own line or Ctrl+D.
     """
+    # Print prompt on separate line to avoid line wrapping issues with long input
+    print(prompt_str, end='', flush=True)
     try:
-        first = input(prompt_str)
+        first = input()
     except EOFError:
         return ""
 
@@ -239,12 +241,14 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
                     readline.insert_text(updated)
                     readline.redisplay()
                 readline.set_pre_input_hook(prefill_hook)
-                first = input(prompt_str)
+                print(prompt_str, end='', flush=True)
+                first = input()
                 readline.set_pre_input_hook()  # Clear the hook
             except (ImportError, AttributeError):
                 # Readline not available - just show and ask for continuation
                 print(f"  Current: {updated}")
-                continuation = input(_c("  Add more (or Enter to submit): ", "dim"))
+                print(_c("  Add more (or Enter to submit): ", "dim"), end='', flush=True)
+                continuation = input()
                 if continuation.strip():
                     first = updated + " " + continuation
                 else:
