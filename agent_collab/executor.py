@@ -30,11 +30,19 @@ def _c(text: str, *styles: str) -> str:
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
-def _build_context_prefix(completed: Dict[int, AgentResult], depends_on: List[int]) -> str:
-    """Build a context string from outputs of tasks this task depends on."""
-    if not depends_on:
-        return ""
+def _build_context_prefix(
+    completed: Dict[int, AgentResult],
+    depends_on: List[int],
+    additional_context: str = ""
+) -> str:
+    """Build a context string from outputs of tasks this task depends on + global context."""
     parts = []
+
+    # Add global additional context if present
+    if additional_context and additional_context.strip():
+        parts.append(f"=== Global Instructions ===\n{additional_context.strip()}")
+
+    # Add dependency outputs
     for dep_id in depends_on:
         res = completed.get(dep_id)
         if res and res.output.strip():
@@ -43,6 +51,7 @@ def _build_context_prefix(completed: Dict[int, AgentResult], depends_on: List[in
             if len(out) > 2000:
                 out = out[:2000] + "\n... [truncated]"
             parts.append(f"=== Output from Task {dep_id} ({res.agent_name.upper()}) ===\n{out}")
+
     if not parts:
         return ""
     return "\n\n".join(parts) + "\n\n--- Your task ---\n"
@@ -187,7 +196,11 @@ def execute_plan(
             async_results: Dict[int, AgentResult] = {}
             threads = []
             for t in parallel_tasks:
-                ctx = _build_context_prefix(completed, t.get("depends_on", []))
+                ctx = _build_context_prefix(
+                    completed,
+                    t.get("depends_on", []),
+                    plan.get("additional_context", "")
+                )
                 agent = agent_map.get(t["agent"], claude)
                 threads.append(_run_task_async(agent, t, ctx, cwd, async_results))
             for th in threads:
@@ -203,7 +216,11 @@ def execute_plan(
 
         # ── Serial tasks in this wave ──────────────────────────────────
         for t in serial_tasks:
-            ctx = _build_context_prefix(completed, t.get("depends_on", []))
+            ctx = _build_context_prefix(
+                completed,
+                t.get("depends_on", []),
+                plan.get("additional_context", "")
+            )
             agent = agent_map.get(t["agent"], claude)
             result = _run_task_with_spinner(agent, t, ctx, cwd)
             completed[t["id"]] = result

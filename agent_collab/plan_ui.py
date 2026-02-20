@@ -73,7 +73,7 @@ def print_plan(plan: dict, verbose: bool = False) -> None:
 
 def print_help() -> None:
     cmds = [
-        ("Enter / go",  "Execute the plan as shown"),
+        ("Enter / go",  "Execute the plan (prompts for additional context)"),
         ("r <n> <agent>","Reassign task n to 'claude' or 'codex'"),
         ("e <n>",        "Edit task n's prompt interactively"),
         ("v <n>",        "View full prompt of task n"),
@@ -81,6 +81,7 @@ def print_help() -> None:
         ("a",            "Add a new task"),
         ("p <n>",        "Toggle parallel flag for task n"),
         ("dep <n> <ids>","Set dependencies, e.g. 'dep 3 1 2'"),
+        ("note <text>",  "Add global note/context to all tasks"),
         ("show",         "Refresh the plan view"),
         ("verbose",      "Toggle verbose (show prompts)"),
         ("q / quit",     "Cancel without executing"),
@@ -111,7 +112,14 @@ def edit_plan(plan: dict) -> Optional[dict]:
     plan = copy.deepcopy(plan)
     verbose = False
 
+    # Initialize additional_context if not present
+    if "additional_context" not in plan:
+        plan["additional_context"] = ""
+
     print_plan(plan, verbose=verbose)
+    if plan.get("additional_context"):
+        print(_c(f"  📝 Global note: {plan['additional_context']}", "yellow"))
+        print()
     print_help()
 
     while True:
@@ -122,13 +130,36 @@ def edit_plan(plan: dict) -> Optional[dict]:
             return None
 
         if not raw:
-            return plan  # Enter → execute
+            # Empty input (Enter) → prompt for additional context then execute
+            print(_c("\nOptional: Add global instructions for all tasks (Enter to skip):", "yellow"))
+            try:
+                extra = input(_c("  + ", "yellow")).strip()
+                if extra:
+                    if plan.get("additional_context"):
+                        plan["additional_context"] += "\n\n" + extra
+                    else:
+                        plan["additional_context"] = extra
+                    print(_c(f"✓ Added: {extra[:100]}{'...' if len(extra) > 100 else ''}", "green"))
+            except (EOFError, KeyboardInterrupt):
+                pass
+            return plan
 
         parts = raw.split()
         cmd = parts[0].lower()
 
         # ── go / execute ──────────────────────────────────────────────
         if cmd in ("go", "run", "exec", "execute"):
+            print(_c("\nOptional: Add global instructions for all tasks (Enter to skip):", "yellow"))
+            try:
+                extra = input(_c("  + ", "yellow")).strip()
+                if extra:
+                    if plan.get("additional_context"):
+                        plan["additional_context"] += "\n\n" + extra
+                    else:
+                        plan["additional_context"] = extra
+                    print(_c(f"✓ Added: {extra[:100]}{'...' if len(extra) > 100 else ''}", "green"))
+            except (EOFError, KeyboardInterrupt):
+                pass
             return plan
 
         # ── quit ─────────────────────────────────────────────────────
@@ -301,6 +332,17 @@ def edit_plan(plan: dict) -> Optional[dict]:
                 continue
             t["depends_on"] = deps
             print(_c(f"✓ Task {tid} depends on {deps}", "green"))
+            continue
+
+        # ── note: add global context ──────────────────────────────────
+        if cmd == "note":
+            note_text = " ".join(parts[1:]) if len(parts) > 1 else ""
+            if not note_text:
+                print(_c("Usage: note <text>", "red"))
+                continue
+            plan["additional_context"] = note_text
+            print(_c(f"✓ Global note set: {note_text}", "green"))
+            print_plan(plan, verbose=verbose)
             continue
 
         print(_c(f"Unknown command: '{raw}'. Type 'h' for help.", "dim"))

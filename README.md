@@ -161,7 +161,7 @@ Claude가 서브태스크 분해 + 에이전트 배정
 
 | 명령어 | 설명 |
 |--------|------|
-| `Enter` \| `go` | 플랜 실행 |
+| `Enter` \| `go` | 플랜 실행 (추가 지시사항 입력 프롬프트 표시) |
 | `r <n> <agent>` | 태스크 n의 에이전트 변경 (`claude` \| `codex`) |
 | `e <n>` | 태스크 n의 프롬프트 직접 편집 |
 | `v <n>` | 태스크 n의 전체 프롬프트 보기 |
@@ -169,8 +169,46 @@ Claude가 서브태스크 분해 + 에이전트 배정
 | `a` | 새 태스크 추가 |
 | `p <n>` | 태스크 n 병렬 실행 토글 |
 | `dep <n> <ids>` | 의존성 설정 (예: `dep 3 1 2`) |
+| `note <text>` | 모든 태스크에 적용할 전역 지시사항 설정 |
 | `verbose` | 프롬프트 표시 토글 |
 | `q` | 취소 |
+
+### 전역 지시사항 추가
+
+플랜 검토 중 또는 실행 직전에 모든 태스크에 공통으로 적용할 지시사항을 추가할 수 있습니다.
+
+**방법 1: `note` 명령어로 미리 설정**
+
+```
+plan> note Use TypeScript strict mode and include error handling
+✓ Global note set: Use TypeScript strict mode and include error handling
+```
+
+**방법 2: 실행 시 입력**
+
+`Enter` 또는 `go` 명령어로 실행 시 추가 지시사항 입력 프롬프트가 표시됩니다:
+
+```
+plan> go
+
+Optional: Add global instructions for all tasks (Enter to skip):
+  + Make sure all code follows PEP 8 style guide
+✓ Added: Make sure all code follows PEP 8 style guide
+```
+
+입력을 건너뛰려면 그냥 `Enter`를 누르면 됩니다.
+
+**적용 방식**
+
+전역 지시사항은 모든 태스크의 프롬프트 앞부분에 다음과 같이 추가됩니다:
+
+```
+=== Global Instructions ===
+Make sure all code follows PEP 8 style guide
+
+--- Your task ---
+[원래 태스크 프롬프트]
+```
 
 ### 플랜만 확인 (실행 없이)
 
