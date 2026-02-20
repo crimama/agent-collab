@@ -485,32 +485,77 @@ _HELP_COMMANDS = [
 
 
 def _print_help() -> None:
-    W = 64
     print()
-    print(_c("╭" + "─" * (W - 2) + "╮", "cyan"))
-    print(_c("│", "cyan") + _c("  collab REPL — Commands", "bold").ljust(W - 2 + 8) + _c("│", "cyan"))
-    print(_c("├" + "─" * (W - 2) + "┤", "cyan"))
-    for entry in _HELP_COMMANDS:
-        if len(entry) == 2:
-            cmd, desc = entry
-        else:
-            cmd, alias, desc = entry[0], entry[1], entry[2]
-            cmd = f"{cmd}  {_c(alias, 'dim')}"
-        if not cmd and not desc:
-            print(_c("│", "cyan") + " " * (W - 2) + _c("│", "cyan"))
-            continue
-        row = f"  {cmd:<28} {desc}"
-        print(_c("│", "cyan") + _c(row, "cyan" if cmd.startswith("/") else "dim")
-              .ljust(W - 2 + 9) + _c("│", "cyan"))
-    print(_c("├" + "─" * (W - 2) + "┤", "cyan"))
+    print(_c("━" * 65, "cyan"))
+    print()
+    print(_c("  📖 agent-collab Commands & Help", "cyan", "bold"))
+    print()
+    print(_c("━" * 65, "cyan"))
+    print()
+
+    # Basic Usage
+    print(_c("  🚀 Getting Started:", "bold"))
+    print(_c("     Just type what you want:", "dim"))
+    print(_c("       ▶ Build a FastAPI server with JWT auth", "green"))
+    print(_c("       ▶ Review @auth.py and fix security issues", "green"))
+    print()
+
+    # Agent Commands
+    print(_c("  🤖 Agent Commands:", "bold"))
+    for cmd, desc in [
+        ("/claude <task>", "Use Claude Code for complex reasoning & analysis"),
+        ("/codex <task>", "Use Codex for quick code generation"),
+        ("/parallel <task>", "Run both agents + get critic review"),
+        ("/plan <goal>", "Generate execution plan (preview only)"),
+    ]:
+        print(_c(f"     {cmd:20}", "yellow") + _c(f"  {desc}", "dim"))
+    print()
+
+    # File Operations
+    print(_c("  📁 File Operations:", "bold"))
+    for cmd, desc in [
+        ("@file.py", "Attach file content to your request"),
+        ("@pattern?", "Interactive file picker (select from list)"),
+        ("@?pattern", "Search for files matching pattern"),
+        ("/files <pattern>", "Find and list matching files"),
+        ("Tab", "Autocomplete file paths"),
+    ]:
+        print(_c(f"     {cmd:20}", "yellow") + _c(f"  {desc}", "dim"))
+    print()
+
+    # Session Management
+    print(_c("  💾 Session & History:", "bold"))
+    for cmd, desc in [
+        ("/history", "Show recent conversation"),
+        ("/status", "Show session info & token count"),
+        ("/clear", "Clear screen & conversation history"),
+        ("/copy", "Copy last response to clipboard"),
+    ]:
+        print(_c(f"     {cmd:20}", "yellow") + _c(f"  {desc}", "dim"))
+    print()
+
+    # Utilities
+    print(_c("  ⚙️  Utilities:", "bold"))
+    for cmd, desc in [
+        ("/compact", "Toggle compact output mode"),
+        ("/help", "Show this help message"),
+        ("/quit", "Exit interactive mode"),
+    ]:
+        print(_c(f"     {cmd:20}", "yellow") + _c(f"  {desc}", "dim"))
+    print()
+
+    # Tips
+    print(_c("  💡 Pro Tips:", "bold"))
     tips = [
-        "  File refs:  /abs/path.py  or  @filename.py",
-        "  Multi-line: start with \"\"\"  end with \"\"\"",
-        "  Tab:        autocomplete /path and @name",
+        'Multi-line input: Start with """ and end with """',
+        "File selection: @main? shows files, pick by number",
+        "Quick execute: Just describe your goal naturally!",
+        "Context aware: Previous messages inform new requests",
     ]
     for tip in tips:
-        print(_c("│", "cyan") + _c(tip, "dim").ljust(W - 2 + 8) + _c("│", "cyan"))
-    print(_c("╰" + "─" * (W - 2) + "╯", "cyan"))
+        print(_c(f"     • {tip}", "dim"))
+    print()
+    print(_c("━" * 65, "cyan"))
     print()
 
 
@@ -706,34 +751,50 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     _setup_file_completion(cwd)
     ctx = _ReplCtx()
 
-    # ── Banner ────────────────────────────────────────────────────────────────
+    # ── Welcome Banner ────────────────────────────────────────────────────────
     print()
-    print(_c("╭─────────────────────────────────────────────────╮", "cyan"))
-    print(_c("│  agent-collab  (Claude ↔ Codex CLI)             │", "cyan", "bold"))
-    print(_c("│  Interactive mode - Type /help for commands     │", "cyan", "dim"))
-    print(_c("╰─────────────────────────────────────────────────╯", "cyan"))
+    print(_c("━" * 65, "cyan"))
     print()
-    print(
-        "  " + _c("@file.py", "yellow") + _c("  attach", "dim") +
-        "  │  " + _c("@pattern?", "yellow") + _c("  select file", "dim") +
-        "  │  " + _c("@?pattern", "yellow") + _c("  search files", "dim")
-    )
-    print(
-        "  " + _c('"""', "yellow") + _c("  multi-line", "dim") +
-        "  │  " + _c("Tab", "yellow") + _c("  autocomplete", "dim") +
-        "  │  " + _c("/help", "yellow") + _c("  commands", "dim")
-    )
+    print(_c("  🤖 agent-collab", "cyan", "bold") + _c("  │  Claude Code ↔ Codex CLI", "cyan"))
+    print(_c("  Interactive AI Collaboration Mode", "cyan", "dim"))
+    print()
+    print(_c("━" * 65, "cyan"))
+    print()
+
+    # Quick Start Guide
+    print(_c("  ✨ Quick Start:", "bold"))
+    print(_c("     Just describe what you want to build, and we'll handle the rest!", "dim"))
+    print()
+    print(_c("  💡 Examples:", "bold"))
+    print(_c("     ▶ ", "dim") + _c("Build a REST API with authentication", "green"))
+    print(_c("     ▶ ", "dim") + _c("Review @main.py and suggest improvements", "green"))
+    print(_c("     ▶ ", "dim") + _c("/claude Explain how this codebase works", "green"))
+    print()
+
+    # Feature Highlights
+    print(_c("  🎯 Features:", "bold"))
+    print(_c("     • ", "dim") + _c("@file.py", "yellow") + _c(" - attach files to your request", "dim"))
+    print(_c("     • ", "dim") + _c("@pattern?", "yellow") + _c(" - interactive file picker", "dim"))
+    print(_c("     • ", "dim") + _c("/help", "yellow") + _c(" - show all commands", "dim"))
+    print(_c("     • ", "dim") + _c("Tab", "yellow") + _c(" - autocomplete file paths", "dim"))
+    print()
+    print(_c("━" * 65, "cyan"))
     print()
 
     while True:
-        # ── Build prompt with token count ──────────────────────────────────
+        # ── Build friendly prompt with context ─────────────────────────────
         tok = ctx.token_estimate()
         prefix = ""
         if ctx.compact:
-            prefix += _c("[compact]", "dim") + " "
+            prefix += _c("[compact] ", "dim")
         if tok > 0:
-            prefix += _c(f"[~{tok}t]", "dim") + " "
-        prompt_str = prefix + _c("▶ ", "magenta", "bold")
+            prefix += _c(f"[~{tok}t] ", "dim")
+
+        # Friendly prompt with hint on first use
+        if not ctx.history:
+            prompt_str = prefix + _c("▶ ", "green", "bold") + _c("(Type your request or /help) ", "dim")
+        else:
+            prompt_str = prefix + _c("▶ ", "green", "bold")
 
         try:
             raw = _multiline_input(prompt_str, cwd)
@@ -800,7 +861,11 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
             _show_file_candidates(pattern, cwd)
 
         elif raw.startswith("/"):
-            print(_c(f"  Unknown command '{raw.split()[0]}'. Type /help for a list.", "red"))
+            unknown_cmd = raw.split()[0]
+            print(_c(f"  ❌ Unknown command: '{unknown_cmd}'", "red"))
+            print(_c(f"  💡 Tip: Type /help to see all available commands", "yellow"))
+            print(_c(f"  💡 Or just describe what you want without a /command prefix!", "yellow"))
+            print()
 
         # ── Goal → Plan → Execute ──────────────────────────────────────────
         else:
