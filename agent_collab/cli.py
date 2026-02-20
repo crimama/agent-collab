@@ -211,11 +211,16 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
     Read one line, or a multi-line block when the line starts with \"\"\".
     Supports interactive file selection with @pattern?.
     End multi-line mode with \"\"\" on its own line or Ctrl+D.
+    Ctrl+C clears current input and returns empty string.
     """
     # Print prompt on separate line to avoid line wrapping issues with long input
     print(prompt_str, end='', flush=True)
     try:
         first = input()
+    except KeyboardInterrupt:
+        # Ctrl+C pressed - clear input and return empty
+        print()
+        return ""
     except EOFError:
         return ""
 
@@ -244,25 +249,37 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
                 print(prompt_str, end='', flush=True)
                 first = input()
                 readline.set_pre_input_hook()  # Clear the hook
+            except KeyboardInterrupt:
+                # Ctrl+C after file selection - clear input
+                print()
+                return ""
             except (ImportError, AttributeError):
                 # Readline not available - just show and ask for continuation
                 print(f"  Current: {updated}")
                 print(_c("  Add more (or Enter to submit): ", "dim"), end='', flush=True)
-                continuation = input()
-                if continuation.strip():
-                    first = updated + " " + continuation
-                else:
-                    first = updated
+                try:
+                    continuation = input()
+                    if continuation.strip():
+                        first = updated + " " + continuation
+                    else:
+                        first = updated
+                except KeyboardInterrupt:
+                    print()
+                    return ""
 
     if not first.startswith('"""'):
         return first.strip()
 
     lines = [first[3:]]
-    print(_c('  (multi-line — end with """ on a blank line)', "dim"))
+    print(_c('  (multi-line — end with """ on a blank line, Ctrl+C to cancel)', "dim"))
     while True:
         try:
             line = input(_c("  … ", "dim"))
-        except (EOFError, KeyboardInterrupt):
+        except KeyboardInterrupt:
+            # Ctrl+C in multi-line mode - cancel and clear
+            print(_c("\n  Input cancelled", "dim"))
+            return ""
+        except EOFError:
             break
         if line.strip() == '"""':
             break
