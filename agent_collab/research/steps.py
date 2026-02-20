@@ -32,11 +32,16 @@ def _run_with_spinner(agent, prompt: str, cwd: str, label: str):
     """Run a single agent with spinner display."""
     done = threading.Event()
     result = None
+    error = None
 
     def _worker():
-        nonlocal result
-        result = agent.run(prompt, cwd=cwd)
-        done.set()
+        nonlocal result, error
+        try:
+            result = agent.run(prompt, cwd=cwd)
+        except Exception as e:
+            error = e
+        finally:
+            done.set()
 
     def _spin():
         i = 0
@@ -55,10 +60,24 @@ def _run_with_spinner(agent, prompt: str, cwd: str, label: str):
     if sys.stderr.isatty():
         spinner.start()
 
-    worker.join()
+    try:
+        while worker.is_alive():
+            worker.join(timeout=0.1)
+    except KeyboardInterrupt:
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+        print(_c("\n\n  ⚠️  Cancelled by user (Ctrl+C)", "yellow", "bold"))
+        print(_c("  Research state has been saved. You can resume with:", "dim"))
+        print(_c("    collab resume", "cyan"))
+        print()
+        raise
+
     done.set()
     if sys.stderr.isatty():
         spinner.join(timeout=0.5)
+
+    if error:
+        raise error
 
     return result
 

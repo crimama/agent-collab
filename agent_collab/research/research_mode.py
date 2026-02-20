@@ -103,23 +103,31 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
             print_round_header(r, total_rounds)
         return
 
-    for round_num in range(len(state.rounds) + 1, total_rounds + 1):
-        print_round_header(round_num, total_rounds)
-        rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg)
-        print_round_summary(rr)
+    try:
+        for round_num in range(len(state.rounds) + 1, total_rounds + 1):
+            print_round_header(round_num, total_rounds)
+            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg)
+            print_round_summary(rr)
 
-        # Update session progress
+            # Update session progress
+            if collab_session:
+                collab_session.current_round = round_num
+                collab_session.research_state_path = str(state.save())
+                collab_session.save()
+
+            direction = rr.conclusion.lower() if rr.conclusion else ""
+            if '"direction": "done"' in direction:
+                print(_c(f"\n✓ Research completed early at round {round_num}.", "green", "bold"))
+                break
+            if '"direction": "pivot"' in direction:
+                print(_c(f"\n↻ Pivoting research direction at round {round_num}.", "yellow", "bold"))
+    except KeyboardInterrupt:
+        print(_c("\n\n  ⚠️  Research cancelled by user", "yellow", "bold"))
+        print(_c(f"  Progress saved at round {len(state.rounds)}", "dim"))
+        print()
         if collab_session:
-            collab_session.current_round = round_num
-            collab_session.research_state_path = str(state.save())
             collab_session.save()
-
-        direction = rr.conclusion.lower() if rr.conclusion else ""
-        if '"direction": "done"' in direction:
-            print(_c(f"\n✓ Research completed early at round {round_num}.", "green", "bold"))
-            break
-        if '"direction": "pivot"' in direction:
-            print(_c(f"\n↻ Pivoting research direction at round {round_num}.", "yellow", "bold"))
+        return
 
     if collab_session:
         collab_session.mark_completed()

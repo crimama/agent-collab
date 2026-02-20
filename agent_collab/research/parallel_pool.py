@@ -86,11 +86,20 @@ class ParallelPool:
 
         for t in threads:
             t.start()
-        for t in threads:
-            t.join()
+
+        try:
+            for t in threads:
+                while t.is_alive():
+                    t.join(timeout=0.1)
+        except KeyboardInterrupt:
+            spin_done.set()
+            sys.stderr.write("\r" + " " * 80 + "\r")
+            sys.stderr.flush()
+            raise
 
         spin_done.set()
-        spin_t.join(timeout=0.5)
+        if sys.stderr.isatty():
+            spin_t.join(timeout=0.5)
 
         outputs: list[AgentOutput] = []
         for task in tasks:
