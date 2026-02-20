@@ -37,39 +37,96 @@ def _c(text: str, *styles: str) -> str:
     return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
 
 
-def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg) -> RoundResult:
-    rr = RoundResult(round_num=round_num, started_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_round: RoundResult = None) -> RoundResult:
+    """
+    Run a research round, optionally resuming from a partial round.
+
+    Args:
+        resume_round: If provided, use this round and skip already-completed steps
+    """
+    if resume_round:
+        rr = resume_round
+        # Update state.current_round to track progress
+        state.current_round = rr
+        print(_c(f"\n  🔄 Resuming Round {round_num} from partial state", "cyan", "bold"))
+        completed_steps = list(rr.steps.keys())
+        if completed_steps:
+            print(_c(f"  ✓ Already completed: {', '.join(completed_steps)}", "green"))
+        print()
+    else:
+        rr = RoundResult(round_num=round_num, started_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+        state.current_round = rr
+
     claude_pool = ParallelPool(claude, codex, cwd=cwd, step_label=f"R{round_num}/CLAUDE")
     codex_pool  = ParallelPool(claude, codex, cwd=cwd, step_label=f"R{round_num}/CODEX")
 
-    print_step_start(1, "Goal Understanding", 1)
-    rr.steps["understand"] = s1 = step1_understand(state, rr, claude, cwd)
-    print_step_result(s1); state.save()
+    # Step 1: Goal Understanding
+    if "understand" not in rr.steps:
+        print_step_start(1, "Goal Understanding", 1)
+        rr.steps["understand"] = s1 = step1_understand(state, rr, claude, cwd)
+        print_step_result(s1)
+        state.current_round = rr  # Update current_round
+        state.save()
+    else:
+        print(_c("  ⏭  Step 1/6 - Goal Understanding [SKIPPED - already completed]", "dim"))
 
-    print_step_start(2, "Problem Analysis", cfg["n_analysts"])
-    rr.steps["analyze"] = s2 = step2_analyze(state, rr, claude_pool, n_analysts=cfg["n_analysts"])
-    print_step_result(s2); state.save()
+    # Step 2: Problem Analysis
+    if "analyze" not in rr.steps:
+        print_step_start(2, "Problem Analysis", cfg["n_analysts"])
+        rr.steps["analyze"] = s2 = step2_analyze(state, rr, claude_pool, n_analysts=cfg["n_analysts"])
+        print_step_result(s2)
+        state.current_round = rr
+        state.save()
+    else:
+        print(_c("  ⏭  Step 2/6 - Problem Analysis [SKIPPED - already completed]", "dim"))
 
-    print_step_start(3, "Methodology & Implementation", cfg["n_implementers"] + 1)
-    rr.steps["methodology"] = s3 = step3_methodology(
-        state, rr, claude, codex_pool, n_implementers=cfg["n_implementers"], cwd=cwd)
-    print_step_result(s3); state.save()
+    # Step 3: Methodology & Implementation
+    if "methodology" not in rr.steps:
+        print_step_start(3, "Methodology & Implementation", cfg["n_implementers"] + 1)
+        rr.steps["methodology"] = s3 = step3_methodology(
+            state, rr, claude, codex_pool, n_implementers=cfg["n_implementers"], cwd=cwd)
+        print_step_result(s3)
+        state.current_round = rr
+        state.save()
+    else:
+        print(_c("  ⏭  Step 3/6 - Methodology & Implementation [SKIPPED - already completed]", "dim"))
 
-    print_step_start(4, "Experiment Execution", cfg["n_experiments"])
-    rr.steps["experiment"] = s4 = step4_experiment(
-        state, rr, codex_pool, n_experiments=cfg["n_experiments"], cwd=cwd)
-    print_step_result(s4); state.save()
+    # Step 4: Experiment Execution
+    if "experiment" not in rr.steps:
+        print_step_start(4, "Experiment Execution", cfg["n_experiments"])
+        rr.steps["experiment"] = s4 = step4_experiment(
+            state, rr, codex_pool, n_experiments=cfg["n_experiments"], cwd=cwd)
+        print_step_result(s4)
+        state.current_round = rr
+        state.save()
+    else:
+        print(_c("  ⏭  Step 4/6 - Experiment Execution [SKIPPED - already completed]", "dim"))
 
-    print_step_start(5, "Result Analysis", 1)
-    rr.steps["results"] = s5 = step5_results(state, rr, claude, cwd)
-    print_step_result(s5); state.save()
+    # Step 5: Result Analysis
+    if "results" not in rr.steps:
+        print_step_start(5, "Result Analysis", 1)
+        rr.steps["results"] = s5 = step5_results(state, rr, claude, cwd)
+        print_step_result(s5)
+        state.current_round = rr
+        state.save()
+    else:
+        print(_c("  ⏭  Step 5/6 - Result Analysis [SKIPPED - already completed]", "dim"))
 
-    print_step_start(6, "Conclusion", 1)
-    rr.steps["conclusion"] = s6 = step6_conclusion(state, rr, total_rounds, claude, cwd)
-    print_step_result(s6)
+    # Step 6: Conclusion
+    if "conclusion" not in rr.steps:
+        print_step_start(6, "Conclusion", 1)
+        rr.steps["conclusion"] = s6 = step6_conclusion(state, rr, total_rounds, claude, cwd)
+        print_step_result(s6)
+        state.current_round = rr
+    else:
+        print(_c("  ⏭  Step 6/6 - Conclusion [SKIPPED - already completed]", "dim"))
 
     rr.finished_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    state.rounds.append(rr)
+
+    # Only append if not already in state (could be resuming)
+    if not any(r.round_num == rr.round_num for r in state.rounds):
+        state.rounds.append(rr)
+
     state.save()  # This also saves memory
 
     # Print memory stats
@@ -94,13 +151,20 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
 
     if resume_path and Path(resume_path).exists():
         state = ResearchState.load(resume_path)
-        print(_c(f"Resuming from {resume_path} (round {len(state.rounds)+1})", "yellow"))
+        # Determine which round to resume from
+        if state.current_round:
+            resume_round_num = state.current_round.round_num
+            print(_c(f"Resuming from {resume_path} (round {resume_round_num}, partial)", "yellow"))
+        else:
+            resume_round_num = len(state.rounds) + 1
+            print(_c(f"Resuming from {resume_path} (round {resume_round_num})", "yellow"))
         collab_session = None  # already registered on first run
     else:
         state = ResearchState(goal=goal, session_dir=cwd)
         state_path = str(Path(cwd) / "research_state.json")
         collab_session = new_research_session(goal, cwd, total_rounds, state_path)
         print(_c(f"Session saved → {collab_session.id}", "dim"))
+        resume_round_num = 1
 
     print_session_header(goal, total_rounds, interactive=interactive)
 
@@ -111,9 +175,35 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
         return
 
     try:
-        for round_num in range(len(state.rounds) + 1, total_rounds + 1):
+        # Determine starting round
+        if state.current_round:
+            # Resume partial round first
+            start_round = state.current_round.round_num
+        else:
+            start_round = len(state.rounds) + 1
+
+        for round_num in range(start_round, total_rounds + 1):
             print_round_header(round_num, total_rounds)
-            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg)
+
+            # Check if we're resuming a partial round
+            resume_round = None
+            if state.current_round and state.current_round.round_num == round_num:
+                resume_round = state.current_round
+                state.current_round = None  # Clear it so we don't resume again
+
+            # Set current_round at start of round
+            if not resume_round:
+                state.current_round = RoundResult(
+                    round_num=round_num,
+                    started_at=time.strftime("%Y-%m-%d %H:%M:%S")
+                )
+                resume_round = state.current_round
+
+            # Run the round
+            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_round=resume_round)
+
+            # Mark round as complete
+            state.current_round = None
             print_round_summary(rr)
 
             # Update session progress

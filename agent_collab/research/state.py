@@ -53,6 +53,7 @@ class ResearchState:
         self.session_dir = Path(session_dir)
         self.created_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.memory = ResearchMemory.load(Path(session_dir), goal=goal)
+        self.current_round: Optional[RoundResult] = None  # Track in-progress round
 
     def round_context(self, max_rounds: int = 3) -> str:
         if not self.rounds:
@@ -87,6 +88,7 @@ class ResearchState:
             "goal": self.goal,
             "created_at": self.created_at,
             "rounds": [asdict(r) for r in self.rounds],
+            "current_round": asdict(self.current_round) if self.current_round else None,
         }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
@@ -103,7 +105,9 @@ class ResearchState:
         session_dir = Path(path).parent
         state = cls(goal=data["goal"], session_dir=str(session_dir))
         state.created_at = data.get("created_at", "")
-        for r_data in data.get("rounds", []):
+
+        # Helper function to parse round data
+        def parse_round(r_data):
             steps = {}
             for name, s in r_data.get("steps", {}).items():
                 outputs = [AgentOutput(**o) for o in s.get("outputs", [])]
@@ -112,14 +116,21 @@ class ResearchState:
                     outputs=outputs, synthesized=s.get("synthesized", ""),
                     duration_s=s.get("duration_s", 0.0),
                 )
-            rr = RoundResult(
+            return RoundResult(
                 round_num=r_data["round_num"], started_at=r_data["started_at"],
                 finished_at=r_data.get("finished_at", ""), steps=steps,
                 conclusion=r_data.get("conclusion", ""),
                 next_hypotheses=r_data.get("next_hypotheses", []),
                 best_metric=r_data.get("best_metric"),
             )
-            state.rounds.append(rr)
+
+        # Load completed rounds
+        for r_data in data.get("rounds", []):
+            state.rounds.append(parse_round(r_data))
+
+        # Load in-progress round if exists
+        if data.get("current_round"):
+            state.current_round = parse_round(data["current_round"])
         return state
 
     def markdown_report(self) -> str:
