@@ -249,34 +249,64 @@ def _print_result(task: dict, result: AgentResult, done: int, total: int) -> Non
     agent  = result.agent_name
     color  = "cyan" if agent == "claude" else "green"
     status = _c("✓", "green") if result.success else _c("✗", "red")
-    badge  = _c(f"[{agent.upper()}]", color, "bold")
+
+    # Agent-specific styling
+    if agent == "claude":
+        icon = "🤖"
+        border_char = "═"
+        side_char = "║"
+    else:
+        icon = "💻"
+        border_char = "─"
+        side_char = "│"
+
+    badge  = _c(f"{icon} {agent.upper()}", color, "bold")
     prog   = _c(f"[{done}/{total}]", "dim")
     t_str  = _c(f"{result.duration_s:.1f}s", "dim")
     title  = task["title"]
 
-    # ── Header line ──────────────────────────────────────────────────────────
-    print(f"\n  {status} {badge}  {title}  {t_str}  {prog}")
+    # ── Header box with agent-specific styling ──────────────────────────────
+    width = 70
+    print()
+    print(_c(f"  ╔{border_char * width}╗", color))
+
+    # Title line
+    title_line = f"  {side_char} {status} {badge}  {title}"
+    padding = width - len(f"{status} {icon} {agent.upper()}  {title}") + 8  # +8 for ANSI codes
+    print(title_line + " " * max(0, padding) + _c(side_char, color))
+
+    # Metadata line
+    meta = f"  {side_char} {t_str}  {prog}"
+    meta_padding = width - len(f"{result.duration_s:.1f}s  [{done}/{total}]") + 6
+    print(_c(meta, "dim") + " " * max(0, meta_padding) + _c(side_char, color))
+
+    print(_c(f"  ╚{border_char * width}╝", color))
 
     if not result.success:
         print(_c(f"  ✖ {result.error[:200]}", "red"))
+        print()
         return
 
     out = result.output.strip()
     if not out:
+        print()
         return
 
     lines = out.splitlines()
     preview = lines[:_PREVIEW_LINES]
     hidden  = len(lines) - _PREVIEW_LINES
 
-    # ── Content box ──────────────────────────────────────────────────────────
-    print(_c("  ┄" * 30, "dim"))
+    # ── Content box with agent color borders ────────────────────────────────
+    print(_c(f"  {side_char}", color) + _c("─" * (width - 1), "dim"))
     for line in preview:
         # Trim very long lines
-        display = line[:120] + _c(" …", "dim") if len(line) > 120 else line
-        print(f"  {display}")
+        display = line[:width - 5] + _c(" …", "dim") if len(line) > width - 5 else line
+        print(_c(f"  {side_char} ", color) + display)
+
     if hidden > 0:
-        print(_c(f"  ╌╌ +{hidden} more lines (saved to results file) ╌╌", "dim"))
+        print(_c(f"  {side_char} ", color) + _c(f"╌╌ +{hidden} more lines (saved to results file) ╌╌", "dim"))
+
+    print(_c(f"  {side_char}", color) + _c("─" * (width - 1), "dim"))
     print()
 
 
