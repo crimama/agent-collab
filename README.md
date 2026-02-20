@@ -8,6 +8,29 @@ AI 연구 전용 모드에서는 6단계 연구 루프를 지정한 라운드 �
 세션은 자동 저장되어 중단 후에도 이어서 재개할 수 있습니다.
 프롬프트에서 `/path/to/file.py` 또는 `@filename.py`로 파일을 참조하면 내용이 자동으로 첨부됩니다.
 
+## 🚀 Quick Start
+
+```bash
+# 1. 설치
+pip install git+https://github.com/crimama/agent-collab.git
+
+# 2. 시작 (그냥 collab만 입력!)
+collab
+
+# Interactive REPL이 자동으로 시작됩니다
+╭─────────────────────────────────────────────────╮
+│  agent-collab  (Claude ↔ Codex CLI)             │
+│  Interactive mode - Type /help for commands     │
+╰─────────────────────────────────────────────────╯
+
+  @file.py  attach  │  @pattern?  select file  │  @?pattern  search files
+  """  multi-line  │  Tab  autocomplete  │  /help  commands
+
+▶ Build a REST API with JWT auth and tests
+```
+
+**그게 전부입니다!** `collab` 명령어만 입력하면 interactive mode가 바로 시작됩니다.
+
 ---
 
 ## 목차
@@ -56,13 +79,15 @@ pip install -e .
 
 | 모드 | 진입 방법 | 설명 |
 |------|-----------|------|
+| 🌟 **대화형 REPL (기본)** | `collab` | 명령어 프리픽스로 실시간 전환 **(기본 모드)** |
 | 목표 기반 플래닝 | `collab "목표"` | 목표 → 플랜 생성 → 검토·수정 → 실행 |
 | 에이전트 직접 지정 | `collab --claude` / `--codex` | 플래닝 없이 단일 에이전트로 즉시 실행 |
 | 병렬 비교 | `collab --parallel` | Claude와 Codex가 동시에 같은 태스크 수행 |
 | AI 연구 모드 | `collab research "목표"` | 6단계 연구 루프를 N 라운드 반복 |
-| 대화형 REPL | `collab -i` | 명령어 프리픽스로 실시간 전환 |
 | 세션 목록 | `collab sessions` | 저장된 세션 전체 조회 |
 | 세션 재개 | `collab resume` | 중단된 세션 선택 후 이어서 실행 |
+
+**💡 Quick Start:** 그냥 `collab` 입력하면 interactive REPL이 시작됩니다!
 
 ---
 

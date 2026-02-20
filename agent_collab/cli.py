@@ -707,9 +707,10 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     ctx = _ReplCtx()
 
     # ── Banner ────────────────────────────────────────────────────────────────
+    print()
     print(_c("╭─────────────────────────────────────────────────╮", "cyan"))
     print(_c("│  agent-collab  (Claude ↔ Codex CLI)             │", "cyan", "bold"))
-    print(_c("│  /help for commands  ·  /quit to exit           │", "cyan", "dim"))
+    print(_c("│  Interactive mode - Type /help for commands     │", "cyan", "dim"))
     print(_c("╰─────────────────────────────────────────────────╯", "cyan"))
     print()
     print(
@@ -894,16 +895,17 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(
         prog="collab",
-        description="Claude Code + Codex CLI orchestrator",
+        description="Claude Code + Codex CLI orchestrator\n\n"
+                    "Default mode: Interactive REPL (just run 'collab' with no arguments)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("goal", nargs="*", help="Development goal or task")
+    parser.add_argument("goal", nargs="*", help="Development goal or task (omit for interactive mode)")
     parser.add_argument("--claude",      action="store_true", help="Force Claude Code")
     parser.add_argument("--codex",       action="store_true", help="Force Codex CLI")
     parser.add_argument("--parallel",    action="store_true", help="Run both agents simultaneously")
     parser.add_argument("--plan-only",   action="store_true", help="Generate plan without executing")
-    parser.add_argument("--interactive", "-i", action="store_true", help="Interactive REPL mode")
+    parser.add_argument("--interactive", "-i", action="store_true", help="Interactive REPL mode (default if no goal)")
     parser.add_argument("--cwd",         default=".", help="Working directory for agents")
     parser.add_argument("--verbose",     "-v", action="store_true")
 
@@ -916,7 +918,12 @@ def main(argv: list[str] | None = None) -> None:
         run_resume(argv[1:], claude, codex)
         return
 
-    if args.interactive or not args.goal:
+    # Default to interactive mode if no goal provided
+    if not args.goal or args.interactive:
+        # Show hint if explicitly running without arguments
+        if not argv:
+            print(_c("  💡 Tip: Just type 'collab' to start interactive mode (this is the default!)", "dim"))
+            print()
         interactive_loop(claude, codex, cwd)
         return
 
