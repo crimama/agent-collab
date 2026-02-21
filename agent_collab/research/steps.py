@@ -482,13 +482,44 @@ def step3_methodology(state, current_round: RoundResult, claude, codex_pool: Par
 
 
 def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool,
-                     n_experiments: int = 2, cwd: str = ".", max_retries: int = 3) -> StepResult:
-    import json, re
+                     n_experiments: int = 2, cwd: str = ".", max_retries: int = 3,
+                     parallel_gpus: bool = True) -> StepResult:
+    import json, re, os
     from pathlib import Path
-    from agent_collab.research.monitor import run_background_task, parse_experiment_command, get_log_content, _c
+    from agent_collab.research.monitor import run_background_task, parse_experiment_command, get_log_content, _c, BackgroundMonitor
+    from agent_collab.research.gpu_manager import (
+        allocate_gpus_to_experiments, format_cuda_visible_devices, print_gpu_status
+    )
 
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
+
+    # Show GPU status and allocate GPUs if parallel execution is enabled
+    gpu_allocation = {}
+    if parallel_gpus:
+        print_gpu_status()
+
+        # Extract memory requirement from constraints if available
+        required_memory = None
+        constraints_match = re.search(r'<!-- CONSTRAINTS: ({.*?}) -->', step3_out, re.DOTALL)
+        if constraints_match:
+            try:
+                constraints = eval(constraints_match.group(1))
+                if 'gpu_memory' in constraints:
+                    # Parse memory like "8GB" to float
+                    mem_str = constraints['gpu_memory'].upper().replace('GB', '').strip()
+                    required_memory = float(mem_str)
+            except Exception:
+                pass
+
+        gpu_allocation = allocate_gpus_to_experiments(n_experiments, required_memory)
+
+        if any(gpu_allocation.values()):
+            print(_c("  🎯 GPU Allocation for Parallel Execution:", "cyan", "bold"))
+            for exp_idx, gpu_ids in gpu_allocation.items():
+                if gpu_ids:
+                    print(_c(f"    Experiment {exp_idx+1} → GPU {gpu_ids}", "dim"))
+            print()
 
     # Extract constraints if they were embedded in step3
     constraints_text = ""
@@ -527,57 +558,111 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
     ]
     outputs = codex_pool.run(tasks, synthesize=False)
 
-    # Check if any outputs indicate background tasks
-    final_outputs = []
+    # Separate background tasks from quick tasks
+    background_tasks = []
+    quick_tasks = []
 
-    for output in outputs:
+    for i, output in enumerate(outputs):
         bg_info = parse_experiment_command(output.output)
         if bg_info:
-            # This is a background task - try with automatic error recovery
-            print(_c(f"\n  🎯 Detected long-running experiment: {output.role}", "yellow", "bold"))
-            if 'estimated_time' in bg_info:
-                print(_c(f"  ⏱️  Estimated time: {bg_info['estimated_time']}", "dim"))
-            print()
+            background_tasks.append((i, output, bg_info))
+        else:
+            quick_tasks.append((i, output))
 
-            task_id = output.role
-            current_setup = output.output
-            retry_count = 0
-            progress = None
+    final_outputs = [None] * len(outputs)  # Preserve order
 
-            # Retry loop with automatic error recovery
-            while retry_count <= max_retries:
-                # Run experiment
-                progress = run_background_task(
-                    task_id=f"{task_id}_attempt{retry_count+1}" if retry_count > 0 else task_id,
-                    command=bg_info['command'],
-                    cwd=cwd,
-                    log_file=bg_info.get('log_file'),
-                    patterns=bg_info.get('patterns'),
-                    wait=True,
-                )
+    # Handle quick tasks first
+    for i, output in quick_tasks:
+        final_outputs[i] = output
 
-                if progress.status == "completed":
-                    # Success! Break out of retry loop
-                    break
+    # Run background tasks in parallel across GPUs
+    if background_tasks and parallel_gpus:
+        final_outputs = _run_parallel_experiments(
+            background_tasks, gpu_allocation, cwd, step3_out,
+            max_retries, codex_pool, final_outputs
+        )
+    elif background_tasks:
+        # Sequential execution (original behavior)
+        for i, output, bg_info in background_tasks:
+            result = _run_single_experiment_with_retry(
+                output, bg_info, None, cwd, step3_out, max_retries, codex_pool
+            )
+            final_outputs[i] = result
 
-                # Failed - attempt recovery
-                retry_count += 1
-                if retry_count > max_retries:
-                    print(_c(f"\n  ❌ Experiment failed after {max_retries} retry attempts", "red", "bold"))
-                    break
+    # Remove None entries and convert to list
+    final_outputs = [o for o in final_outputs if o is not None]
 
-                print(_c(f"\n  ⚠️  Experiment failed (attempt {retry_count}/{max_retries})", "yellow", "bold"))
-                print(_c(f"  📋 Error: {progress.error_message[:200]}...", "red"))
-                print(_c(f"  🔧 Attempting automatic fix...", "cyan"))
+    # Extract learnings from experiment outputs
+    for output in final_outputs:
+        state.memory.extract_learnings_from_output(
+            output.output, current_round.round_num, "Experiment"
+        )
+        # Specifically check for failures
+        if not output.success or "FAILED" in output.output.upper():
+            state.memory.add_failure(
+                current_round.round_num, "Experiment",
+                f"Experiment {output.role} failed", output.output[:300]
+            )
 
-                # Get full log for error analysis
-                log_content = ""
-                if bg_info.get('log_file'):
-                    log_path = Path(cwd) / bg_info['log_file']
-                    log_content = get_log_content(log_path, max_lines=200)
+    return StepResult(step_id=4, step_name="Experiment Execution",
+                      outputs=final_outputs,
+                      synthesized="\n\n".join(o.output for o in final_outputs),
+                      duration_s=time.time() - t0)
 
-                # Ask Codex to fix the error
-                fix_prompt = f"""The experiment failed with the following error. Analyze the error and provide a fixed implementation.
+
+def _run_single_experiment_with_retry(output, bg_info, gpu_ids, cwd, step3_out,
+                                      max_retries, codex_pool):
+    """Run a single experiment with automatic retry on failure."""
+    from pathlib import Path
+    from agent_collab.research.monitor import run_background_task, get_log_content, _c
+    from agent_collab.research.gpu_manager import format_cuda_visible_devices
+
+    task_id = output.role
+    current_setup = output.output
+    retry_count = 0
+    progress = None
+
+    # Modify command to use specific GPUs if allocated
+    command = bg_info['command']
+    if gpu_ids:
+        gpu_str = format_cuda_visible_devices(gpu_ids)
+        # Prepend CUDA_VISIBLE_DEVICES to command
+        command = f"CUDA_VISIBLE_DEVICES={gpu_str} {command}"
+
+    # Retry loop with automatic error recovery
+    while retry_count <= max_retries:
+        # Run experiment
+        progress = run_background_task(
+            task_id=f"{task_id}_attempt{retry_count+1}" if retry_count > 0 else task_id,
+            command=command,
+            cwd=cwd,
+            log_file=bg_info.get('log_file'),
+            patterns=bg_info.get('patterns'),
+            wait=True,
+        )
+
+        if progress.status == "completed":
+            # Success! Break out of retry loop
+            break
+
+        # Failed - attempt recovery
+        retry_count += 1
+        if retry_count > max_retries:
+            print(_c(f"\n  ❌ {task_id} failed after {max_retries} retry attempts", "red", "bold"))
+            break
+
+        print(_c(f"\n  ⚠️  {task_id} failed (attempt {retry_count}/{max_retries})", "yellow", "bold"))
+        print(_c(f"  📋 Error: {progress.error_message[:200]}...", "red"))
+        print(_c(f"  🔧 Attempting automatic fix...", "cyan"))
+
+        # Get full log for error analysis
+        log_content = ""
+        if bg_info.get('log_file'):
+            log_path = Path(cwd) / bg_info['log_file']
+            log_content = get_log_content(log_path, max_lines=200)
+
+        # Ask Codex to fix the error
+        fix_prompt = f"""The experiment failed with the following error. Analyze the error and provide a fixed implementation.
 
 ORIGINAL TASK:
 {step3_out}
@@ -599,94 +684,139 @@ INSTRUCTIONS:
 
 Respond with the fixed experiment setup:"""
 
-                print(_c(f"  🤖 Asking Codex to analyze and fix the error...", "cyan"))
+        print(_c(f"  🤖 Asking Codex to analyze and fix the error...", "cyan"))
 
-                # Get fixed implementation from Codex
-                fix_result = codex_pool.codex.run(fix_prompt, cwd=cwd)
+        # Get fixed implementation from Codex
+        fix_result = codex_pool.codex.run(fix_prompt, cwd=cwd)
 
-                if not fix_result.success:
-                    print(_c(f"  ❌ Could not generate fix. Stopping retry.", "red"))
-                    break
+        if not fix_result.success:
+            print(_c(f"  ❌ Could not generate fix. Stopping retry.", "red"))
+            break
 
-                # Parse the new setup
-                new_bg_info = parse_experiment_command(fix_result.output)
-                if not new_bg_info:
-                    print(_c(f"  ❌ Fix did not produce valid experiment setup. Stopping retry.", "red"))
-                    break
+        # Parse the new setup
+        from agent_collab.research.monitor import parse_experiment_command
+        new_bg_info = parse_experiment_command(fix_result.output)
+        if not new_bg_info:
+            print(_c(f"  ❌ Fix did not produce valid experiment setup. Stopping retry.", "red"))
+            break
 
-                print(_c(f"  ✓ Generated fix. Retrying experiment...", "green"))
+        print(_c(f"  ✓ Generated fix. Retrying experiment...", "green"))
 
-                # Update for next iteration
-                bg_info = new_bg_info
-                current_setup = fix_result.output
+        # Update for next iteration
+        bg_info = new_bg_info
+        current_setup = fix_result.output
+        command = bg_info['command']
+        if gpu_ids:
+            gpu_str = format_cuda_visible_devices(gpu_ids)
+            command = f"CUDA_VISIBLE_DEVICES={gpu_str} {command}"
 
-            # Create final result output
-            if progress and progress.status == "completed":
-                result_text = f"""EXPERIMENT: {task_id}
+    # Create final result output
+    if progress and progress.status == "completed":
+        result_text = f"""EXPERIMENT: {task_id}
 STATUS: SUCCESS (Background task completed)
 ATTEMPTS: {retry_count + 1}
 DURATION: {progress.last_update - progress.started_at:.0f}s
+GPU: {gpu_ids if gpu_ids else 'default'}
 
 METRICS:"""
-                if progress.current_metric:
-                    for k, v in progress.current_metric.items():
-                        if k == 'loss':
-                            result_text += f"\n  - {k}: {v:.4f}"
-                        else:
-                            result_text += f"\n  - {k}: {v:.2%}"
+        if progress.current_metric:
+            for k, v in progress.current_metric.items():
+                if k == 'loss':
+                    result_text += f"\n  - {k}: {v:.4f}"
+                else:
+                    result_text += f"\n  - {k}: {v:.2%}"
 
-                if progress.current_epoch and progress.total_epochs:
-                    result_text += f"\n\nCOMPLETED: {progress.current_epoch}/{progress.total_epochs} epochs"
+        if progress.current_epoch and progress.total_epochs:
+            result_text += f"\n\nCOMPLETED: {progress.current_epoch}/{progress.total_epochs} epochs"
 
-                if retry_count > 0:
-                    result_text += f"\n\n⚠️  NOTE: Succeeded after {retry_count} auto-fix attempt(s)"
+        if retry_count > 0:
+            result_text += f"\n\n⚠️  NOTE: Succeeded after {retry_count} auto-fix attempt(s)"
 
-                result_text += f"\n\n--- Final Setup ---\n{current_setup}"
+        result_text += f"\n\n--- Final Setup ---\n{current_setup}"
 
-                final_outputs.append(AgentOutput(
-                    agent=output.agent, role=output.role,
-                    output=result_text,
-                    duration_s=progress.last_update - progress.started_at,
-                    success=True,
-                ))
-            else:
-                # Failed even after retries
-                error_text = f"""EXPERIMENT: {task_id}
+        return AgentOutput(
+            agent=output.agent, role=output.role,
+            output=result_text,
+            duration_s=progress.last_update - progress.started_at,
+            success=True,
+        )
+    else:
+        # Failed even after retries
+        error_text = f"""EXPERIMENT: {task_id}
 STATUS: FAILED (after {retry_count + 1} attempts)
 ERROR: {progress.error_message if progress else 'Unknown error'}
 EXIT_CODE: {progress.exit_code if progress else 'N/A'}
+GPU: {gpu_ids if gpu_ids else 'default'}
 
 --- Last Setup Attempted ---
 {current_setup}"""
-                final_outputs.append(AgentOutput(
-                    agent=output.agent, role=output.role,
-                    output=error_text,
-                    duration_s=progress.last_update - progress.started_at if progress else 0,
-                    success=False, error=progress.error_message if progress else "Failed",
-                ))
-        else:
-            # Regular short experiment, use output as-is
-            final_outputs.append(output)
-
-    # Extract learnings from experiment outputs
-    for output in final_outputs:
-        state.memory.extract_learnings_from_output(
-            output.output, current_round.round_num, "Experiment"
+        return AgentOutput(
+            agent=output.agent, role=output.role,
+            output=error_text,
+            duration_s=progress.last_update - progress.started_at if progress else 0,
+            success=False, error=progress.error_message if progress else "Failed",
         )
-        # Specifically check for failures
-        if not output.success or "FAILED" in output.output.upper():
-            state.memory.add_failure(
-                current_round.round_num, "Experiment",
-                f"Experiment {output.role} failed", output.output[:300]
-            )
-
-    return StepResult(step_id=4, step_name="Experiment Execution",
-                      outputs=final_outputs,
-                      synthesized="\n\n".join(o.output for o in final_outputs),
-                      duration_s=time.time() - t0)
 
 
-def step5_results(state, current_round: RoundResult, claude, cwd: str = ".") -> StepResult:
+def _run_parallel_experiments(background_tasks, gpu_allocation, cwd, step3_out,
+                              max_retries, codex_pool, final_outputs):
+    """Run multiple experiments in parallel on different GPUs."""
+    import threading
+    from agent_collab.research.monitor import _c
+
+    print()
+    print(_c(f"  🚀 Starting {len(background_tasks)} experiments in parallel...", "cyan", "bold"))
+    print()
+
+    results = {}
+    threads = []
+    lock = threading.Lock()
+
+    def worker(idx, output, bg_info):
+        gpu_ids = gpu_allocation.get(idx, [])
+        result = _run_single_experiment_with_retry(
+            output, bg_info, gpu_ids, cwd, step3_out, max_retries, codex_pool
+        )
+        with lock:
+            results[idx] = result
+
+    # Start all experiments
+    for idx, output, bg_info in background_tasks:
+        gpu_ids = gpu_allocation.get(idx, [])
+        gpu_str = f" on GPU {gpu_ids}" if gpu_ids else ""
+        print(_c(f"  🎯 Detected long-running experiment: {output.role}{gpu_str}", "yellow", "bold"))
+        if 'estimated_time' in bg_info:
+            print(_c(f"  ⏱️  Estimated time: {bg_info['estimated_time']}", "dim"))
+
+        t = threading.Thread(
+            target=worker,
+            args=(idx, output, bg_info),
+            daemon=True
+        )
+        threads.append(t)
+        t.start()
+
+    print()
+    print(_c(f"  ⏳ Waiting for all {len(threads)} experiments to complete...", "dim"))
+
+    # Wait for all threads to complete
+    for t in threads:
+        t.join()
+
+    # Update final_outputs with results
+    for idx, result in results.items():
+        final_outputs[idx] = result
+
+    print()
+    print(_c(f"  ✅ All {len(background_tasks)} parallel experiments completed!", "green", "bold"))
+    print()
+
+    return final_outputs
+
+
+# Rest of step4_experiment continues below...
+# (The code that was after the for loop)
+
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
     step4_out = current_round.steps.get("experiment",  StepResult(4, "")).primary_output()

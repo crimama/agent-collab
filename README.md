@@ -636,6 +636,49 @@ collab research \
 | `--implementers N` | 2 | Step 3 | 서로 다른 구현 방법 시도 |
 | `--experiments N` | 2 | Step 4 | 서로 다른 설정으로 실험 병렬 실행 |
 
+### 🚀 Multi-GPU 병렬 실험 실행
+
+**여러 GPU가 있을 경우 실험을 동시에 병렬로 실행**합니다.
+
+**자동 GPU 할당:**
+```
+  🖥️  Available GPUs:
+    GPU 0: NVIDIA RTX 4090         |  22.5GB free |  15% util
+    GPU 1: NVIDIA RTX 4090         |  23.1GB free |   8% util
+    GPU 2: NVIDIA RTX 3090         |  22.8GB free |  12% util
+
+  🎯 GPU Allocation for Parallel Execution:
+    Experiment 1 → GPU [0]
+    Experiment 2 → GPU [1]
+    Experiment 3 → GPU [2]
+
+  🚀 Starting 3 experiments in parallel...
+```
+
+**동작 방식:**
+1. **GPU 자동 감지** - nvidia-smi로 사용 가능한 GPU 확인
+2. **지능형 할당** - 메모리 여유가 많고 사용률이 낮은 GPU 우선 선택
+3. **병렬 실행** - 각 실험이 서로 다른 GPU에서 동시 실행
+4. **자동 환경 설정** - CUDA_VISIBLE_DEVICES 자동 설정
+5. **동시 모니터링** - 모든 실험의 진행 상황 동시 추적
+
+**GPU 메모리 요구사항 반영:**
+Interactive 모드에서 설정한 GPU 메모리 제한이 자동으로 반영됩니다:
+```bash
+collab research -i --experiments 4 "모델 최적화"
+
+> GPU memory limit: 8GB  # 8GB 이상 여유가 있는 GPU만 사용
+```
+
+**성능 향상:**
+- GPU 1개: 실험 3개 × 4시간 = **12시간**
+- GPU 3개: 실험 3개 ∥ 병렬 = **4시간** ⚡ (3배 속도)
+
+**자동 Fallback:**
+- GPU 없으면: CPU로 순차 실행
+- GPU 부족하면: 사용 가능한 GPU에 순환 할당
+- 실험 수 > GPU 수: 라운드 로빈 방식으로 할당
+
 ### 📚 연구 메모리 시스템
 
 Research 모드는 **자동으로 학습**하며, 이전 라운드의 실수와 인사이트를 기억합니다.
