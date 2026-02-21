@@ -287,10 +287,17 @@ class BackgroundMonitor:
             self.progress.current_epoch = int(epoch_match.group(1))
             self.progress.total_epochs = int(epoch_match.group(2))
 
-        # Metric patterns: "Loss: 1.234", "AUC=0.985", "Pixel AP: 58.3%"
+        # Metric patterns: "Loss: 1.234", "AUC=0.985", "Pixel AP: 58.3%", "I-AUROC=0.9917"
         metric_patterns = [
             (r'loss[:\s]+([\d.]+)', 'loss'),
             (r'auc[:\s=]+([\d.]+)', 'auc'),
+            (r'I-AUROC[:\s=]+([\d.]+)', 'I-AUROC'),
+            (r'P-AUROC[:\s=]+([\d.]+)', 'P-AUROC'),
+            (r'I-AP[:\s=]+([\d.]+)', 'I-AP'),
+            (r'P-AP[:\s=]+([\d.]+)', 'P-AP'),
+            (r'I-F1[:\s=]+([\d.]+)', 'I-F1'),
+            (r'P-F1[:\s=]+([\d.]+)', 'P-F1'),
+            (r'AUPRO[:\s=]+([\d.]+)', 'AUPRO'),
             (r'pixel\s*ap[:\s]+([\d.]+)', 'pixel_ap'),
             (r'image\s*auc[:\s]+([\d.]+)', 'image_auc'),
         ]
@@ -495,8 +502,10 @@ def show_log_tail(
                 line_lower = line.lower()
                 # Keep lines with: epoch, loss, metrics, errors, warnings, completion
                 if any(keyword in line_lower for keyword in [
-                    'epoch', 'loss', 'auc', 'accuracy', 'error', 'warning',
-                    'completed', 'failed', 'metric', 'pixel ap', 'image auc'
+                    'epoch', 'loss', 'auc', 'auroc', 'accuracy', 'error', 'warning',
+                    'completed', 'failed', 'metric', 'pixel ap', 'image auc',
+                    'i-auroc', 'p-auroc', 'i-ap', 'p-ap', 'i-f1', 'p-f1', 'aupro',
+                    'mean', '[baseline]', '[train]'
                 ]):
                     important_lines.append(line)
 
@@ -574,6 +583,13 @@ def get_log_summary(log_path: Path) -> Dict[str, Any]:
             metric_patterns = [
                 (r'loss[:\s]+([\d.]+)', 'loss'),
                 (r'auc[:\s=]+([\d.]+)', 'auc'),
+                (r'I-AUROC[:\s=]+([\d.]+)', 'I-AUROC'),
+                (r'P-AUROC[:\s=]+([\d.]+)', 'P-AUROC'),
+                (r'I-AP[:\s=]+([\d.]+)', 'I-AP'),
+                (r'P-AP[:\s=]+([\d.]+)', 'P-AP'),
+                (r'I-F1[:\s=]+([\d.]+)', 'I-F1'),
+                (r'P-F1[:\s=]+([\d.]+)', 'P-F1'),
+                (r'AUPRO[:\s=]+([\d.]+)', 'AUPRO'),
                 (r'pixel\s*ap[:\s]+([\d.]+)', 'pixel_ap'),
                 (r'image\s*auc[:\s]+([\d.]+)', 'image_auc'),
                 (r'accuracy[:\s]+([\d.]+)', 'accuracy'),
