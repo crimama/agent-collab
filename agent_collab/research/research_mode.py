@@ -37,7 +37,7 @@ def _c(text: str, *styles: str) -> str:
     return "".join(codes.get(s, "") for s in styles) + text + codes["reset"]
 
 
-def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_round: RoundResult = None) -> RoundResult:
+def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_round: RoundResult = None, interactive: bool = False) -> RoundResult:
     """
     Run a research round, optionally resuming from a partial round.
 
@@ -84,7 +84,8 @@ def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_ro
     if "methodology" not in rr.steps:
         print_step_start(3, "Methodology & Implementation", cfg["n_implementers"] + 1)
         rr.steps["methodology"] = s3 = step3_methodology(
-            state, rr, claude, codex_pool, n_implementers=cfg["n_implementers"], cwd=cwd)
+            state, rr, claude, codex_pool, n_implementers=cfg["n_implementers"], cwd=cwd,
+            interactive_constraints=interactive)
         print_step_result(s3)
         state.current_round = rr
         state.save()
@@ -221,7 +222,8 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                 resume_round = state.current_round
 
             # Run the round
-            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_round=resume_round)
+            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg,
+                          resume_round=resume_round, interactive=interactive)
 
             # Mark round as complete
             state.current_round = None

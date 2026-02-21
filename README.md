@@ -685,13 +685,39 @@ collab log <log_file_path> --no-filter
 
 ### ⏸️ Interactive 라운드 제어
 
-`--interactive` (`-i`) 플래그로 각 라운드 후 진행 여부를 확인할 수 있습니다.
+`--interactive` (`-i`) 플래그로 각 라운드 후 진행 여부를 확인하고, 실험 전 제약 조건을 설정할 수 있습니다.
 
 ```bash
 collab research --rounds 10 -i "복잡한 최적화 작업"
 ```
 
-**동작:**
+**Interactive 모드 기능:**
+
+1. **실험 제약 조건 설정** (Step 3 전)
+```
+══════════════════════════════════════════════════════════════════
+  📋 Experiment Configuration
+══════════════════════════════════════════════════════════════════
+
+  Please provide constraints for the experiments:
+  (Press Enter to skip any question)
+
+  🖥️  Hardware Constraints:
+    GPU memory limit (e.g., '8GB', '16GB'): 8GB
+    CPU memory limit (e.g., '32GB', '64GB'): 32GB
+    Max batch size: 32
+
+  🎯 Regularization & Training:
+    Regularization methods (e.g., 'dropout, L2, early_stopping'): dropout, early_stopping
+    Max training epochs: 100
+    Learning rate range (e.g., '1e-4 to 1e-3'): 1e-4 to 1e-3
+
+  🔬 Experiment Specifics:
+    Any special requirements or constraints: use FP16
+    Techniques to avoid (e.g., 'mixed precision, gradient accumulation'): gradient checkpointing
+```
+
+2. **라운드 진행 확인** (각 라운드 후)
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Round 1/10 completed.
@@ -705,7 +731,13 @@ collab research --rounds 10 -i "복잡한 최적화 작업"
 - `n` 또는 `q`: 중단 (진행 상황은 자동 저장됨)
 - `Ctrl+C`: 언제든 중단
 
-중단 후 `--resume`으로 이어서 진행 가능합니다.
+**제약 조건 활용:**
+- 모든 제약 조건은 실험 생성 시 자동으로 적용됨
+- GPU 메모리 부족, OOM 에러 사전 방지
+- 불필요한 기법 사용 회피
+- 실험 설정의 일관성 보장
+
+중단 후 `--resume`으로 이어서 진행 가능합니다 (제약 조건은 저장됨).
 
 ### 🔄 세션 재개 (Picker)
 

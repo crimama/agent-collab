@@ -339,20 +339,119 @@ def step2_analyze(state, current_round: RoundResult, pool: ParallelPool, n_analy
                       duration_s=time.time() - t0)
 
 
+def _ask_experiment_constraints() -> dict[str, str]:
+    """Ask user for experiment constraints and parameters."""
+    import sys
+
+    print()
+    print(_c("=" * 70, "cyan"))
+    print(_c("  📋 Experiment Configuration", "cyan", "bold"))
+    print(_c("=" * 70, "cyan"))
+    print()
+    print(_c("  Please provide constraints for the experiments:", "dim"))
+    print(_c("  (Press Enter to skip any question)", "dim"))
+    print()
+
+    constraints = {}
+
+    # GPU/Memory constraints
+    print(_c("  🖥️  Hardware Constraints:", "yellow", "bold"))
+    gpu_memory = input(_c("    GPU memory limit (e.g., '8GB', '16GB'): ", "yellow")).strip()
+    if gpu_memory:
+        constraints['gpu_memory'] = gpu_memory
+
+    cpu_memory = input(_c("    CPU memory limit (e.g., '32GB', '64GB'): ", "yellow")).strip()
+    if cpu_memory:
+        constraints['cpu_memory'] = cpu_memory
+
+    batch_size = input(_c("    Max batch size: ", "yellow")).strip()
+    if batch_size:
+        constraints['batch_size'] = batch_size
+
+    print()
+
+    # Regularization parameters
+    print(_c("  🎯 Regularization & Training:", "yellow", "bold"))
+
+    regularization = input(_c("    Regularization methods (e.g., 'dropout, L2, early_stopping'): ", "yellow")).strip()
+    if regularization:
+        constraints['regularization'] = regularization
+
+    max_epochs = input(_c("    Max training epochs: ", "yellow")).strip()
+    if max_epochs:
+        constraints['max_epochs'] = max_epochs
+
+    learning_rate = input(_c("    Learning rate range (e.g., '1e-4 to 1e-3'): ", "yellow")).strip()
+    if learning_rate:
+        constraints['learning_rate'] = learning_rate
+
+    print()
+
+    # Experiment-specific questions
+    print(_c("  🔬 Experiment Specifics:", "yellow", "bold"))
+
+    special_requirements = input(_c("    Any special requirements or constraints: ", "yellow")).strip()
+    if special_requirements:
+        constraints['special_requirements'] = special_requirements
+
+    avoid_techniques = input(_c("    Techniques to avoid (e.g., 'mixed precision, gradient accumulation'): ", "yellow")).strip()
+    if avoid_techniques:
+        constraints['avoid_techniques'] = avoid_techniques
+
+    print()
+    print(_c("=" * 70, "dim"))
+
+    if constraints:
+        print(_c("  ✓ Constraints recorded:", "green"))
+        for k, v in constraints.items():
+            print(_c(f"    • {k}: {v}", "dim"))
+    else:
+        print(_c("  ℹ️  No constraints specified (using defaults)", "dim"))
+
+    print(_c("=" * 70, "dim"))
+    print()
+
+    return constraints
+
+
 def step3_methodology(state, current_round: RoundResult, claude, codex_pool: ParallelPool,
-                      n_implementers: int = 2, cwd: str = ".") -> StepResult:
+                      n_implementers: int = 2, cwd: str = ".",
+                      interactive_constraints: bool = True) -> StepResult:
     t0 = time.time()
     step2_out = current_round.steps.get("analyze", StepResult(2, "")).primary_output()
+
+    # Ask for experiment constraints if interactive
+    constraints = {}
+    if interactive_constraints:
+        try:
+            constraints = _ask_experiment_constraints()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            print(_c("  ⏭  Skipping constraint configuration", "dim"))
+            constraints = {}
+
+    # Add constraints to the planning prompt
+    constraints_text = ""
+    if constraints:
+        constraints_text = "\n\nUSER-SPECIFIED CONSTRAINTS:\n"
+        for key, value in constraints.items():
+            constraints_text += f"- {key}: {value}\n"
+        constraints_text += "\nIMPORTANT: All experiments MUST respect these constraints.\n"
+
     plan_res = _run_with_spinner(
         claude,
         _S3_PLAN.format(
             goal=state.goal, round_num=current_round.round_num, step2_output=step2_out,
             memory_context=state.memory.get_full_context(),
-        ),
+        ) + constraints_text,
         cwd,
         _c("[CLAUDE]", "cyan", "bold") + _c(" Designing methodology", "dim")
     )
     plan_output = plan_res.output
+
+    # Store constraints in the output for later use
+    if constraints:
+        plan_output = f"{plan_output}\n\n<!-- CONSTRAINTS: {constraints} -->"
     impl_tasks = [
         PoolTask(role=f"implementer-{i+1}", agent="codex",
                  prompt=_S3_IMPLEMENT.format(
@@ -390,6 +489,21 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
 
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
+
+    # Extract constraints if they were embedded in step3
+    constraints_text = ""
+    constraints_match = re.search(r'<!-- CONSTRAINTS: ({.*?}) -->', step3_out, re.DOTALL)
+    if constraints_match:
+        try:
+            constraints = eval(constraints_match.group(1))
+            if constraints:
+                constraints_text = "\n\nIMPORTANT - USER CONSTRAINTS (MUST FOLLOW):\n"
+                for key, value in constraints.items():
+                    constraints_text += f"- {key.replace('_', ' ').title()}: {value}\n"
+                constraints_text += "\nAll experiments MUST respect these constraints or they will fail.\n"
+        except Exception:
+            pass
+
     exp_configs = []
     match = re.search(r'```json\s*(\{.*?"experiments".*?\})\s*```', step3_out, re.DOTALL)
     if match:
@@ -408,7 +522,7 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
                      goal=state.goal, cwd=cwd, step3_output=step3_out,
                      exp_name=cfg.get("name", f"exp_{i+1}"),
                      exp_description=cfg.get("description", ""),
-                 ))
+                 ) + constraints_text)
         for i, cfg in enumerate(exp_configs)
     ]
     outputs = codex_pool.run(tasks, synthesize=False)
