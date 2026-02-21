@@ -885,9 +885,8 @@ def _run_parallel_experiments(background_tasks, gpu_allocation, cwd, step3_out,
     return final_outputs
 
 
-# Rest of step4_experiment continues below...
-# (The code that was after the for loop)
-
+def step5_results(state, current_round: RoundResult, claude, cwd: str = ".") -> StepResult:
+    """Step 5: Analyze experiment results and extract insights."""
     t0 = time.time()
     step3_out = current_round.steps.get("methodology", StepResult(3, "")).primary_output()
     step4_out = current_round.steps.get("experiment",  StepResult(4, "")).primary_output()
