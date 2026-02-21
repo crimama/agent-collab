@@ -212,6 +212,7 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
     Supports interactive file selection with @pattern?.
     End multi-line mode with \"\"\" on its own line or Ctrl+D.
     Ctrl+C clears current input and returns empty string.
+    Ctrl+D exits collab.
     """
     # Print prompt on separate line to avoid line wrapping issues with long input
     print(prompt_str, end='', flush=True)
@@ -222,7 +223,8 @@ def _multiline_input(prompt_str: str, cwd: str = ".") -> str:
         print()
         return ""
     except EOFError:
-        return ""
+        # Ctrl+D pressed - exit collab (propagate to caller)
+        raise
 
     # Check for file reference pattern
     # If line ends with @something? or /something?, offer interactive selection
@@ -575,6 +577,8 @@ def _print_help() -> None:
         "File selection: @main? shows files, pick by number",
         "Quick execute: Just describe your goal naturally!",
         "Context aware: Previous messages inform new requests",
+        "Ctrl+C: Clear current input and start fresh",
+        "Ctrl+D: Exit collab",
     ]
     for tip in tips:
         print(_c(f"     • {tip}", "dim"))
@@ -802,6 +806,8 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
     print(_c("     • ", "dim") + _c("@pattern?", "yellow") + _c(" - interactive file picker", "dim"))
     print(_c("     • ", "dim") + _c("/help", "yellow") + _c(" - show all commands", "dim"))
     print(_c("     • ", "dim") + _c("Tab", "yellow") + _c(" - autocomplete file paths", "dim"))
+    print(_c("     • ", "dim") + _c("Ctrl+C", "yellow") + _c(" - clear current input", "dim"))
+    print(_c("     • ", "dim") + _c("Ctrl+D", "yellow") + _c(" - exit collab", "dim"))
     print()
     print(_c("━" * 65, "cyan"))
     print()
@@ -823,7 +829,13 @@ def interactive_loop(claude: ClaudeAgent, codex: CodexAgent, cwd: str) -> None:
 
         try:
             raw = _multiline_input(prompt_str, cwd)
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            # Ctrl+D pressed - exit
+            print()
+            print(_c("  Bye!", "dim"))
+            break
+        except KeyboardInterrupt:
+            # Rare case - usually handled in _multiline_input
             print()
             break
 
