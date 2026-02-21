@@ -758,6 +758,51 @@ GPU: {gpu_ids if gpu_ids else 'default'}
         )
 
 
+def _extract_experiment_summary(output_text: str, bg_info: dict) -> str:
+    """Extract a concise summary of what the experiment does."""
+    import re
+
+    summary_parts = []
+
+    # Extract experiment description from output
+    desc_match = re.search(r'EXPERIMENT[:\s]+([^\n]+)', output_text, re.IGNORECASE)
+    if desc_match:
+        summary_parts.append(desc_match.group(1).strip())
+
+    # Extract key parameters or changes
+    param_patterns = [
+        r'(?:batch[_\s]?size|learning[_\s]?rate|epochs?|dropout|regularization|optimizer)',
+        r'(?:hidden[_\s]?dim|num[_\s]?layers|attention[_\s]?heads)',
+    ]
+
+    for pattern in param_patterns:
+        matches = re.findall(f'{pattern}[:\s=]+([^\n,]+)', output_text, re.IGNORECASE)
+        if matches:
+            for match in matches[:3]:  # Limit to 3 params
+                summary_parts.append(match.strip())
+
+    # Get command info
+    if bg_info.get('command'):
+        cmd = bg_info['command']
+        # Extract key flags
+        flag_matches = re.findall(r'--(\w+)\s+(\S+)', cmd)
+        if flag_matches:
+            key_flags = [f"{k}={v}" for k, v in flag_matches[:3]]
+            if key_flags:
+                summary_parts.append(" | ".join(key_flags))
+
+    # If we found nothing, try to get first substantive line from output
+    if not summary_parts:
+        lines = output_text.split('\n')
+        for line in lines[1:10]:  # Skip first line, check next 9
+            line = line.strip()
+            if len(line) > 20 and not line.startswith(('STATUS:', 'COMMAND:', 'LOG_FILE:')):
+                summary_parts.append(line[:100])
+                break
+
+    return " | ".join(summary_parts) if summary_parts else "No description available"
+
+
 def _run_parallel_experiments(background_tasks, gpu_allocation, cwd, step3_out,
                               max_retries, codex_pool, final_outputs):
     """Run multiple experiments in parallel on different GPUs."""
@@ -765,7 +810,9 @@ def _run_parallel_experiments(background_tasks, gpu_allocation, cwd, step3_out,
     from agent_collab.research.monitor import _c
 
     print()
-    print(_c(f"  🚀 Starting {len(background_tasks)} experiments in parallel...", "cyan", "bold"))
+    print(_c("=" * 80, "cyan"))
+    print(_c(f"  🚀 Starting {len(background_tasks)} Parallel Experiments", "cyan", "bold"))
+    print(_c("=" * 80, "cyan"))
     print()
 
     results = {}
@@ -780,13 +827,36 @@ def _run_parallel_experiments(background_tasks, gpu_allocation, cwd, step3_out,
         with lock:
             results[idx] = result
 
-    # Start all experiments
+    # Display detailed experiment information before starting
     for idx, output, bg_info in background_tasks:
         gpu_ids = gpu_allocation.get(idx, [])
-        gpu_str = f" on GPU {gpu_ids}" if gpu_ids else ""
-        print(_c(f"  🎯 Detected long-running experiment: {output.role}{gpu_str}", "yellow", "bold"))
+        gpu_str = f" [GPU {gpu_ids}]" if gpu_ids else " [CPU]"
+
+        print(_c(f"  🔬 Experiment {idx+1}: {output.role}", "yellow", "bold"))
+        print(_c(f"     Device: {gpu_str}", "dim"))
+
         if 'estimated_time' in bg_info:
-            print(_c(f"  ⏱️  Estimated time: {bg_info['estimated_time']}", "dim"))
+            print(_c(f"     Duration: ~{bg_info['estimated_time']}", "dim"))
+
+        # Extract and display experiment summary
+        summary = _extract_experiment_summary(output.output, bg_info)
+        print(_c(f"     Summary: {summary[:200]}", "cyan"))
+
+        # Show command
+        if bg_info.get('command'):
+            cmd = bg_info['command']
+            # Truncate very long commands
+            if len(cmd) > 100:
+                cmd_display = cmd[:97] + "..."
+            else:
+                cmd_display = cmd
+            print(_c(f"     Command: {cmd_display}", "dim"))
+
+        # Show log file location
+        if bg_info.get('log_file'):
+            print(_c(f"     Logs: {bg_info['log_file']}", "dim"))
+
+        print()
 
         t = threading.Thread(
             target=worker,

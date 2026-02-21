@@ -185,7 +185,7 @@ class BackgroundMonitor:
         if self.log_file:
             log_path = self.cwd / self.log_file
             if log_path.exists():
-                print_log_summary(log_path)
+                print_log_summary(log_path, self.task_id)
                 print(_c("\n  📝 Final Log Output:", "cyan", "bold"))
                 show_log_tail(log_path, lines=15, filter_important=True)
 
@@ -243,7 +243,7 @@ class BackgroundMonitor:
                     self._last_log_display = current_time
                     log_path = self.cwd / self.log_file
                     if log_path.exists():
-                        print_log_summary(log_path)
+                        print_log_summary(log_path, self.task_id)
 
             # Adaptive polling: check more frequently at the start (when errors are most likely)
             elapsed = time.time() - self.progress.started_at
@@ -613,44 +613,68 @@ def get_log_summary(log_path: Path) -> Dict[str, Any]:
         return summary
 
 
-def print_log_summary(log_path: Path) -> None:
+def print_log_summary(log_path: Path, task_id: str = "Task") -> None:
     """Print a concise summary of the log file."""
     summary = get_log_summary(log_path)
 
-    print(_c(f"\n  📊 Experiment Summary:", "cyan", "bold"))
-    print(_c("  " + "─" * 60, "dim"))
+    # Don't print if there's no meaningful information
+    has_info = (
+        summary["current_epoch"] or
+        summary["latest_metrics"] or
+        summary["errors"] or
+        summary["warnings"]
+    )
+
+    if not has_info:
+        # Print minimal message
+        print(_c(f"  📊 {task_id} - No metrics found yet (log may be initializing)", "dim"))
+        return
+
+    print()
+    print(_c("  " + "─" * 70, "cyan"))
+    print(_c(f"  📊 {task_id} - Live Update", "cyan", "bold"))
+    print(_c("  " + "─" * 70, "cyan"))
 
     # Status
     status_color = "green" if summary["status"] == "completed" else "yellow" if summary["status"] == "running" else "red"
-    print(_c(f"  Status: {summary['status'].upper()}", status_color, "bold"))
+    status_icon = "✅" if summary["status"] == "completed" else "🔄" if summary["status"] == "running" else "❌"
+    print(_c(f"  {status_icon} Status: {summary['status'].upper()}", status_color, "bold"))
 
     # Progress
     if summary["current_epoch"] and summary["total_epochs"]:
         progress = (summary["current_epoch"] / summary["total_epochs"]) * 100
-        print(_c(f"  Progress: Epoch {summary['current_epoch']}/{summary['total_epochs']} ({progress:.0f}%)", "cyan"))
+        bar_width = 30
+        filled = int(bar_width * progress / 100)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        print(_c(f"  📈 Progress: Epoch {summary['current_epoch']}/{summary['total_epochs']}", "cyan", "bold"))
+        print(_c(f"     {bar} {progress:.1f}%", "cyan"))
 
     # Metrics
     if summary["latest_metrics"]:
-        print(_c(f"\n  Latest Metrics:", "bold"))
+        print(_c(f"  📊 Latest Metrics:", "bold"))
         for metric, value in summary["latest_metrics"].items():
             if metric == 'loss':
-                print(_c(f"    • {metric}: {value:.4f}", "dim"))
+                print(_c(f"     • {metric.upper()}: {value:.4f}", "yellow"))
             else:
-                print(_c(f"    • {metric}: {value:.2%}", "dim"))
+                print(_c(f"     • {metric.upper()}: {value:.2%}", "green"))
 
     # Errors
     if summary["errors"]:
-        print(_c(f"\n  ⚠️  Errors ({len(summary['errors'])}):", "red", "bold"))
-        for err in summary["errors"]:
-            print(_c(f"    • {err}", "red", "dim"))
+        print(_c(f"  ⚠️  Errors ({len(summary['errors'])}):", "red", "bold"))
+        for err in summary["errors"][:3]:  # Show max 3 errors
+            print(_c(f"     • {err[:80]}", "red"))
+        if len(summary["errors"]) > 3:
+            print(_c(f"     ... and {len(summary['errors']) - 3} more", "red", "dim"))
 
     # Warnings
     if summary["warnings"]:
-        print(_c(f"\n  ⚠️  Warnings ({len(summary['warnings'])}):", "yellow"))
-        for warn in summary["warnings"]:
-            print(_c(f"    • {warn}", "yellow", "dim"))
+        print(_c(f"  ⚠️  Warnings ({len(summary['warnings'])}):", "yellow"))
+        for warn in summary["warnings"][:3]:  # Show max 3 warnings
+            print(_c(f"     • {warn[:80]}", "yellow", "dim"))
+        if len(summary["warnings"]) > 3:
+            print(_c(f"     ... and {len(summary['warnings']) - 3} more", "yellow", "dim"))
 
-    print(_c("  " + "─" * 60, "dim"))
+    print(_c("  " + "─" * 70, "dim"))
     print()
 
 
