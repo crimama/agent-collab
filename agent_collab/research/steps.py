@@ -607,7 +607,8 @@ def step4_experiment(state, current_round: RoundResult, codex_pool: ParallelPool
     return StepResult(step_id=4, step_name="Experiment Execution",
                       outputs=final_outputs,
                       synthesized="\n\n".join(o.output for o in final_outputs),
-                      duration_s=time.time() - t0)
+                      duration_s=time.time() - t0,
+                      generate_reports=True)  # Flag to generate reports later
 
 
 def _run_single_experiment_with_retry(output, bg_info, gpu_ids, cwd, step3_out,

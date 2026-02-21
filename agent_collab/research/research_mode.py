@@ -28,6 +28,44 @@ SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _USE_COLOR = sys.stdout.isatty()
 
 
+def _generate_experiment_reports(outputs, round_num, session_id, goal, claude, cwd):
+    """Generate detailed reports for all experiments."""
+    from agent_collab.research.report_generator import (
+        create_session_folder,
+        generate_experiment_report,
+        generate_round_summary_report,
+    )
+
+    print()
+    print(_c("  📝 Generating experiment reports...", "cyan", "bold"))
+
+    session_dir = create_session_folder(session_id)
+
+    # Generate individual reports
+    report_paths = []
+    for output in outputs:
+        try:
+            report_path = generate_experiment_report(
+                output, round_num, session_dir, claude, cwd
+            )
+            report_paths.append(report_path)
+            print(_c(f"     ✓ Report: {report_path.name}", "dim"))
+        except Exception as e:
+            print(_c(f"     ✗ Failed to generate report for {output.role}: {e}", "red", "dim"))
+
+    # Generate round summary
+    try:
+        summary_path = generate_round_summary_report(
+            round_num, outputs, session_dir, claude, cwd
+        )
+        print(_c(f"     ✓ Summary: {summary_path.name}", "green"))
+    except Exception as e:
+        print(_c(f"     ✗ Failed to generate round summary: {e}", "red", "dim"))
+
+    print(_c(f"  📁 Reports saved to: {session_dir}", "dim"))
+    print()
+
+
 def _c(text: str, *styles: str) -> str:
     if not _USE_COLOR:
         return text
@@ -100,6 +138,11 @@ def run_round(state, round_num, total_rounds, claude, codex, cwd, cfg, resume_ro
         print_step_result(s4)
         state.current_round = rr
         state.save()
+
+        # Generate experiment reports
+        if s4.outputs and cfg.get("session_id"):
+            _generate_experiment_reports(s4.outputs, round_num, cfg["session_id"],
+                                        state.goal, claude, cwd)
     else:
         print(_c("  ⏭  Step 4/6 - Experiment Execution [SKIPPED - already completed]", "dim"))
 
@@ -221,8 +264,11 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
                 )
                 resume_round = state.current_round
 
+            # Add session_id to cfg for report generation
+            cfg_with_session = {**cfg, "session_id": collab_session.id if collab_session else None}
+
             # Run the round
-            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg,
+            rr = run_round(state, round_num, total_rounds, claude, codex, cwd, cfg_with_session,
                           resume_round=resume_round, interactive=interactive)
 
             # Mark round as complete
@@ -292,6 +338,19 @@ def run_research_session(goal, total_rounds, claude, codex, cwd, cfg,
     report_path = Path(cwd) / f"research_report_{time.strftime('%Y%m%d_%H%M%S')}.md"
     report_path.write_text(state.markdown_report())
     print_final_summary(state)
+
+    # Generate session index with all experiment reports
+    if collab_session:
+        from agent_collab.research.report_generator import (
+            create_session_folder,
+            generate_session_index,
+        )
+        try:
+            session_dir = create_session_folder(collab_session.id)
+            index_path = generate_session_index(session_dir, state.goal, len(state.rounds))
+            print(_c(f"\n📚 Experiment Reports Index → {index_path}", "cyan", "bold"))
+        except Exception as e:
+            print(_c(f"  ⚠️  Failed to generate session index: {e}", "yellow", "dim"))
 
     # Save memory and show location
     memory_path = state.memory.save(Path(cwd))
